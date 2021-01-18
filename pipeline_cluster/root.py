@@ -1,4 +1,4 @@
-from pipeline_cluster_node import PipelineClusterNodeClient
+from pipeline_cluster import node
 import threading
 import queue
 
@@ -6,9 +6,9 @@ import queue
 
 
 # TODO implement all function asyncron that clients can be managed parallel
-class PipelineCluster:
+class Root:
     def __init__(self, *node_addrs):
-        self.node_clients = [PipelineClusterNodeClient(addr) for addr in node_addrs]
+        self.node_clients = [node.Client(addr) for addr in node_addrs]
 
         self.input_queue = queue.Queue()
         self.queue_count = 0

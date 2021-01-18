@@ -1,6 +1,5 @@
-from pipeline_cluster import PipelineCluster
-from pipeline_cluster_node import PipelineClusterNode
-import multiprocess_logging as mpl
+from pipeline_cluster import root, node
+import pipeline_cluster.multiprocess_logging as mpl
 import multiprocessing as mp
 import json
 
@@ -32,7 +31,7 @@ pipeline_tasks = [
 
 
 def node_routine(addr):
-    PipelineClusterNode(addr, logger_addr, conn_buffer_size=2).serve()
+    node.Server(addr, logger_addr, conn_buffer_size=2).serve()
 
 if __name__ == "__main__":
     mpl.serve(logger_addr, logger_file, conn_buffer_size=4, detach=True)
@@ -42,15 +41,15 @@ if __name__ == "__main__":
     for node in nodes:
         node.start()
 
-    cluster = PipelineCluster(*node_addrs)
-    cluster.setup("example_pipeline", 1.0, pipeline_tasks)
-    print(json.dumps(cluster.status(), indent=4))
-    cluster.boot()
-    cluster.schedule()
-    cluster.feed(True, True, True, True, True)
-    cluster.wait_empty()
-    print(json.dumps(cluster.status(), indent=4))
-    cluster.reset()
+    root = root.Root(*node_addrs)
+    root.setup("example_pipeline", 1.0, pipeline_tasks)
+    print(json.dumps(root.status(), indent=4))
+    root.boot()
+    root.schedule()
+    root.feed(True, True, True, True, True)
+    root.wait_empty()
+    print(json.dumps(root.status(), indent=4))
+    root.reset()
 
     for node in nodes:
         node.terminate()

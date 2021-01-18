@@ -1,9 +1,9 @@
 from collections import namedtuple
 import inspect
-import multiprocessing as mp
-import multiprocess_logging as mpl
-from util import SharedCounter, SharedBuffer
 import signal
+import multiprocessing as mp
+import pipeline_cluster.multiprocess_logging as mpl
+from pipeline_cluster import util
 
 Task = namedtuple("Task", ["function", "name", "is_generator", "input_buffer", "output_buffer"])
 
@@ -136,10 +136,10 @@ class Pipeline:
         self.taskchain = []
         self.worker = []
 
-        self.new_items_counter = SharedCounter()
-        self.idle_counter = SharedCounter()
-        self.sleep_counter = SharedCounter()
-        self.terminate_counter = SharedCounter()
+        self.new_items_counter = util.SharedCounter()
+        self.idle_counter = util.SharedCounter()
+        self.sleep_counter = util.SharedCounter()
+        self.terminate_counter = util.SharedCounter()
         self.state_cond = mp.Condition()
 
 
@@ -166,9 +166,9 @@ class Pipeline:
                 else:
                     input_buffer = prev_task.output_buffer
             else:
-                input_buffer = SharedBuffer()
+                input_buffer = util.SharedBuffer()
 
-            self.taskchain.append(Task(t, t.__name__, is_generator, input_buffer, SharedBuffer()))
+            self.taskchain.append(Task(t, t.__name__, is_generator, input_buffer, util.SharedBuffer()))
 
 
     def __str__(self):

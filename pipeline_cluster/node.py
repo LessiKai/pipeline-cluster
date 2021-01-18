@@ -1,11 +1,10 @@
-
 import threading
 import multiprocessing as mp
 import multiprocessing.connection as mpc
-from util import connect_timeout
-from pipeline import Pipeline
+from pipeline_cluster import util
+from pipeline_cluster import pipeline
 
-class PipelineNodeCommand:
+class Command:
     ERROR = "ERROR"
     SETUP = "SETUP"
     STATUS = "STATUS"
@@ -23,7 +22,7 @@ class PipelineNodeCommand:
 
 
 
-class PipelineClusterNode:
+class Server:
     def __init__(self, addr, log_addr, conn_buffer_size=2):
         self.addr = addr
         self.conn_buffer_size = conn_buffer_size
@@ -50,21 +49,21 @@ class PipelineClusterNode:
     def _handle_request(self, conn, req):
         if type(req) != dict:
             return {
-                "command": PipelineNodeCommand.ERROR,
+                "command": Command.ERROR,
                 "describtion": "request has to be of type dict"
             }
 
         command = req["command"]
         
-        if command == PipelineNodeCommand.SETUP:
+        if command == Command.SETUP:
 
             if self.pipeline is not None and not self.pipeline.is_reset():
                 return {
                     "node": req["node"],
-                    "command": PipelineNodeCommand.ERROR,
+                    "command": Command.ERROR,
                     "describtion": "previous pipeline is still running"
                 }
-            self.pipeline = Pipeline(self.log_addr, name=req["name"], version=req["version"]) # TODO:add a lock or just dont call it while another process is requesting 
+            self.pipeline = pipeline.Pipeline(self.log_addr, name=req["name"], version=req["version"]) # TODO:add a lock or just dont call it while another process is requesting 
             for task in req["tasks"]:
                 try:
                     self.pipeline.add_task(task["function"], is_generator=task["is_generator"])
@@ -76,7 +75,7 @@ class PipelineClusterNode:
                 "command": command
             }
 
-        elif command == PipelineNodeCommand.STATUS:
+        elif command == Command.STATUS:
             return {
                 "node": req["node"],
                 "command": command,
@@ -86,14 +85,14 @@ class PipelineClusterNode:
                 "n_idle": self.pipeline.get_n_idle()
             }
 
-        elif command == PipelineNodeCommand.BOOT:
+        elif command == Command.BOOT:
             n_worker = req["n_worker"] if req["n_worker"] is not None else mp.cpu_count()
             try:
                 self.pipeline.boot(n_worker=n_worker)
             except Exception as e:
                 return {
                     "node": req["node"],
-                    "command": PipelineNodeCommand.ERROR,
+                    "command": Command.ERROR,
                     "describtion": str(e)
                 }
             return {
@@ -101,13 +100,13 @@ class PipelineClusterNode:
                 "command": command
             }
 
-        elif command == PipelineNodeCommand.RESET:
+        elif command == Command.RESET:
             try:
                 self.pipeline.reset()
             except Exception as e:
                 return {
                     "node": req["node"],
-                    "command": PipelineNodeCommand.ERROR,
+                    "command": Command.ERROR,
                     "describtion": str(e)
                 }
             return {
@@ -115,13 +114,13 @@ class PipelineClusterNode:
                 "command": command
             }
 
-        elif command == PipelineNodeCommand.FEED:
+        elif command == Command.FEED:
             try:
                 self.pipeline.feed(*req["items"])
             except Exception as e:
                 return {
                     "node": req["node"],
-                    "command": PipelineNodeCommand.ERROR,
+                    "command": Command.ERROR,
                     "descibtion": str(e)
                 }
             return {
@@ -129,7 +128,7 @@ class PipelineClusterNode:
                 "command": command
             }
 
-        elif command == PipelineNodeCommand.STREAM_OUTPUT:
+        elif command == Command.STREAM_OUTPUT:
 
             while self.pipeline.wait_output():
                 output = self.pipeline.get_output()
@@ -142,24 +141,24 @@ class PipelineClusterNode:
 
             return {
                 "node": req["node"],
-                "command": PipelineNodeCommand.STREAM_END
+                "command": Command.STREAM_END
             }
 
-        elif command == PipelineNodeCommand.SLEEP:
+        elif command == Command.SLEEP:
             self.pipeline.sleep()
             return {
                 "node": req["node"],
                 "command": command
             }
 
-        elif command == PipelineNodeCommand.WAKEUP:
+        elif command == Command.WAKEUP:
             self.pipeline.wakeup()
             return {
                 "node": req["node"],
                 "command": command
             }
         
-        elif command == PipelineNodeCommand.WAIT_IDLE:
+        elif command == Command.WAIT_IDLE:
             ret = self.pipeline.wait_idle()
             return {
                 "node": req["node"],
@@ -168,7 +167,7 @@ class PipelineClusterNode:
                 "n_idle": self.pipeline.get_n_idle()
             }
 
-        elif command == PipelineNodeCommand.WAIT_EMPTY:
+        elif command == Command.WAIT_EMPTY:
             ret = self.pipeline.wait_empty()
             return {
                 "node": req["node"],
@@ -176,7 +175,7 @@ class PipelineClusterNode:
                 "sleep": not ret
             }
 
-        elif command == PipelineNodeCommand.WAIT_ASLEEP:
+        elif command == Command.WAIT_ASLEEP:
             self.pipeline.wait_asleep()
             return {
                 "node": req["node"],
@@ -186,44 +185,44 @@ class PipelineClusterNode:
         else:
             return {
                 "node": req["node"],
-                "command": PipelineNodeCommand.ERROR,
+                "command": Command.ERROR,
                 "describtion": "command not known"
             }
 
 
 
 
-class PipelineClusterNodeClient:
+class Client:
     def __init__(self, addr):
         self.addr = addr
 
 
     def send_command_setup(self, name, version, tasks):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.SETUP,
+            "command": Command.SETUP,
             "name": name,
             "version": version,
             "tasks": tasks
         })
         resp = conn.recv()
         conn.close()
-        if resp["command"] == PipelineNodeCommand.ERROR:
+        if resp["command"] == Command.ERROR:
             raise Exception(resp["describtion"])
 
 
     def send_command_status(self):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.STATUS
+            "command": Command.STATUS
         })
         resp = conn.recv()
         conn.close()
@@ -235,85 +234,85 @@ class PipelineClusterNodeClient:
         n_worker = some int
         n_worker = None -> mp.cpu_count()
         """
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.BOOT,
+            "command": Command.BOOT,
             "n_worker": n_worker
         })
         resp = conn.recv()
         conn.close()
-        if resp["command"] == PipelineNodeCommand.ERROR:
+        if resp["command"] == Command.ERROR:
             raise Exception(resp["describtion"])
 
     
     def send_command_reset(self):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.RESET
+            "command": Command.RESET
         })
         resp = conn.recv()
         conn.close()
-        if resp["command"] == PipelineNodeCommand.ERROR:
+        if resp["command"] == Command.ERROR:
             raise Exception(resp["describtion"])
 
     def send_command_sleep(self):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.SLEEP
+            "command": Command.SLEEP
         })
         resp = conn.recv()
         conn.close()
 
     def send_command_wakeup(self):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.WAKEUP
+            "command": Command.WAKEUP
         })
         resp = conn.recv()
         conn.close()
 
 
     def send_command_feed(self, *items):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.FEED,
+            "command": Command.FEED,
             "items": list(items)
         })
         resp = conn.recv()
         conn.close()
 
-        if resp["command"] == PipelineNodeCommand.ERROR:
+        if resp["command"] == Command.ERROR:
             raise Exception(resp["describtion"])
 
 
     def _stream_routine(self, output_handler):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.STREAM_OUTPUT
+            "command": Command.STREAM_OUTPUT
         })
 
         while True:
@@ -322,7 +321,7 @@ class PipelineClusterNodeClient:
             except EOFError:
                 break
 
-            if response["command"] == PipelineNodeCommand.STREAM_END:
+            if response["command"] == Command.STREAM_END:
                 break
 
             if response["output"]:
@@ -338,39 +337,39 @@ class PipelineClusterNodeClient:
             self._stream_routine(output_handler)
 
     def send_command_wait_idle(self):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.WAIT_IDLE
+            "command": Command.WAIT_IDLE
         })
         resp = conn.recv()
         conn.close()
         return (resp["sleep"], resp["n_idle"])
 
     def send_command_wait_empty(self):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.WAIT_EMPTY
+            "command": Command.WAIT_EMPTY
         })
         resp = conn.recv()
         conn.close()
         return resp["sleep"]
 
     def send_command_wait_asleep(self):
-        conn = connect_timeout(self.addr, retry=True)
+        conn = util.connect_timeout(self.addr, retry=True)
         conn.send({
             "node": {
                 "ip": self.addr[0],
                 "port": self.addr[1]
             },
-            "command": PipelineNodeCommand.WAIT_ASLEEP
+            "command": Command.WAIT_ASLEEP
         })
         resp = conn.recv()
         conn.close()

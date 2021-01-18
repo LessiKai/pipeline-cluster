@@ -6,7 +6,7 @@ import logging
 import sys
 import signal
 import time
-import util
+from pipeline_cluster import util
 
 
 def _handle_connection(conn, caddr):
