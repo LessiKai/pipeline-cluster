@@ -24,7 +24,7 @@ def _handle_connection(conn, caddr):
 def _serve(addr, conn_buffer_size, filename):
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    file_logger = logging.FileHandler(filename, "w", "utf-8")
+    file_logger = logging.FileHandler(filename, "a", "utf-8")
     root_logger.addHandler(file_logger)
     log_handler = logging.StreamHandler(sys.stderr)
     root_logger.addHandler(log_handler)
