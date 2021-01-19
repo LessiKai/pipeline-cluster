@@ -22,10 +22,11 @@ def _handle_connection(conn, caddr):
     
 
 def _serve(addr, conn_buffer_size, filename):
-    logging.basicConfig(filename=filename, filemode="a", encoding="utf-8", level=logging.DEBUG)
     root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    file_logger = logging.FileHandler(filename, "w", "utf-8")
+    root_logger.addHandler(file_logger)
     log_handler = logging.StreamHandler(sys.stderr)
-    log_handler.setLevel(logging.DEBUG)
     root_logger.addHandler(log_handler)
     
     with mpc.Listener(addr, "AF_INET", conn_buffer_size, None) as lst:

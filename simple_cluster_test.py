@@ -38,8 +38,8 @@ if __name__ == "__main__":
 
     node_addrs = [("", 5600), ("", 5601)]
     nodes = [mp.Process(target=node_routine, args=(addr, )) for addr in node_addrs]
-    for node in nodes:
-        node.start()
+    for n in nodes:
+        n.start()
 
     root = root.Root(*node_addrs)
     root.setup("example_pipeline", 1.0, pipeline_tasks)
