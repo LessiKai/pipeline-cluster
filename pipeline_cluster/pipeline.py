@@ -25,6 +25,7 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
     # TODO: ignore/handle more signals if needed
 
     mpl.configure(log_addr)
+    mpl.log("worker started")
 
     while True:
         with state_cond:
@@ -67,7 +68,7 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                 if item is None:
                     break
 
-                is_last_task = i == len(taskchain) - 1
+                is_last_task = (i == len(taskchain) - 1)
                 if curr_task.output_buffer is not None:
                     if curr_task.is_generator:
                         if not item:
@@ -267,33 +268,53 @@ class Pipeline:
         """
         return self.idle_counter.value() == len(self.worker) and self.new_items_counter.value() == 0
 
-    def wait_output(self):
+    def wait_output(self, abort_on_sleep=True):
         """
         Wait for output items.
         This function should only be called on a running pipeline.
-        As soon as the pipeline sleeps or is reset, this function returns immediately. (Return False)
+        As soon as the pipeline is reset or sleeps, this function returns immediately. (Return False)
         Otherwise (Return True)
         """
         with self.state_cond:
-            while self.is_running() and self.is_awake() and self.taskchain[-1].output_buffer.empty():
-                self.state_cond.wait()
 
-            if not self.is_running() or not self.is_awake():
-                return False
-            return True
+            if abort_on_sleep:
+                while self.is_running() and self.is_awake() and self.taskchain[-1].output_buffer.empty():
+                    self.state_cond.wait()
 
-    def wait_idle(self):
+                if not self.is_running() or not self.is_awake():
+                    return False
+                return True
+
+            else:
+                while self.is_running() and self.taskchain[-1].output_buffer.empty():
+                    self.state_cond.wait()
+
+                if not self.is_running():
+                    return False
+                return True
+
+    def wait_idle(self, abort_on_sleep=True):
         """
         Wait until one worker is idle. (Return True)
-        Returns immediately when the pipeline is asleep or reset (Return False)
+        Returns immediately when the pipeline is reset or asleep (Return False)
         """
         with self.state_cond:
-            while self.is_running() and self.is_awake() and self.idle_counter.value() == 0:
-                self.state_cond.wait()
 
-            if not self.is_running() or not self.is_awake():
-                return False
-            return True
+            if abort_on_sleep:
+                while self.is_running() and self.is_awake() and self.idle_counter.value() == 0:
+                    self.state_cond.wait()
+
+                if not self.is_running() or not self.is_awake():
+                    return False
+                return True
+
+            else:
+                while self.is_running() and (self.is_asleep() or self.idle_counter.value() == 0):
+                    self.state_cond.wait()
+
+                if not self.is_running():
+                    return False
+                return True
 
     def wait_empty(self):
         """

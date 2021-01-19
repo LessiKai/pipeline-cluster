@@ -12,8 +12,7 @@ class Root:
 
         self.input_queue = queue.Queue()
         self.queue_count = 0
-        self.no_more_input = False
-        self.asleep = False
+        self.is_reset = True
         self.scheduler_state_cond = threading.Condition()
 
 
@@ -31,51 +30,23 @@ class Root:
             status.append(cli.send_command_status())
         return status
 
-    def boot(self):
+    def boot(self, output_handler=lambda item: None):
+        with self.scheduler_state_cond:
+            self.is_reset = False
+
         for cli in self.node_clients:
             try:
                 cli.send_command_boot(n_worker=None) # boot pipeline with #worker = #cores
+                cli.send_command_stream_output(output_handler, detach=True)
+                threading.Thread(target=self._client_scheduler_routine, args=(cli,)).start()
             except Exception as e:
                 raise e
 
-    def reset(self):
-        for cli in self.node_clients:
-            try:
-                cli.send_command_reset()
-            except Exception as e:
-                raise e
-
-    def wakeup(self):
-        for cli in self.node_clients:
-            cli.send_command_wakeup()
-
-    def sleep(self):
-        for cli in self.node_clients:
-            cli.send_command_sleep()
-
-        for cli in self.node_clients:
-            cli.send_command_wait_asleep()
-        
-        with self.scheduler_state_cond:
-            self.asleep = True
-            self.scheduler_state_cond.notify_all()
-
-
-    def feed(self, *items):
-        for item in items:
-            self.input_queue.put(item)
-
-        with self.scheduler_state_cond:
-            self.queue_count += len(items)
-
-    def stream_output(self, output_handler):
-        for cli in self.node_clients:
-            cli.send_command_stream_output(output_handler, detach=True)
 
     def _client_scheduler_routine(self, cli):
         while True:
-            sleeping, n_idle = cli.send_command_wait_idle()
-            if sleeping:
+            reset, n_idle = cli.send_command_wait_idle()
+            if reset:
                 return
 
             if n_idle == 0:
@@ -83,10 +54,10 @@ class Root:
             
             new_items = []
             with self.scheduler_state_cond:
-                while self.queue_count == 0 and not self.no_more_input:
+                while self.queue_count == 0 and not self.is_reset:
                     self.scheduler_state_cond.wait()
 
-                if self.queue_count == 0 and self.no_more_input:
+                if self.is_reset:
                     return
 
                 for _ in range(n_idle):
@@ -98,33 +69,51 @@ class Root:
                 self.queue_count -= len(new_items)
                 self.scheduler_state_cond.notify_all()
 
-            cli.send_command_feed(*new_items)
+                cli.send_command_feed(*new_items)
 
 
-    def schedule(self):
+    def reset(self):
         for cli in self.node_clients:
-            threading.Thread(target=self._client_scheduler_routine, args=(cli,)).start()
+            try:
+                cli.send_command_reset()
+            except Exception as e:
+                raise e
+        
+        with self.scheduler_state_cond:
+            self.is_reset = True
+            self.scheduler_state_cond.notify_all()
+
+    def wakeup(self):
+        for cli in self.node_clients:
+            cli.send_command_wakeup()
+
+    def sleep(self):
+        for cli in self.node_clients:
+            cli.send_command_sleep()
+
+        for cli in self.node_clients:
+            cli.send_command_wait_asleep()
+
+
+    def feed(self, *items):
+        with self.scheduler_state_cond:
+            for item in items:
+                self.input_queue.put(item)
+            self.queue_count += len(items)
+            self.scheduler_state_cond.notify_all()
+
 
     def wait_input(self):
         with self.scheduler_state_cond:
-            while self.queue_count != 0 and not self.asleep:
+            while self.queue_count > 0:
                 self.scheduler_state_cond.wait()
-
-            if self.asleep:
-                return False
-
-            return True
 
     def wait_empty(self):
         with self.scheduler_state_cond:
-            self.no_more_input = True
-            self.scheduler_state_cond.notify_all()
+            while self.queue_count > 0:
+                self.scheduler_state_cond.wait()
 
         for cli in self.node_clients:
             cli.send_command_wait_empty()
 
-        if self.queue_count > 0 or (self.queue_count == 0 and self.asleep):
-            return False
-
-        return True
     

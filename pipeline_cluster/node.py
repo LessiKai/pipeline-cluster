@@ -130,7 +130,7 @@ class Server:
 
         elif command == Command.STREAM_OUTPUT:
 
-            while self.pipeline.wait_output():
+            while self.pipeline.wait_output(abort_on_sleep=False):
                 output = self.pipeline.get_output()
                 if output:
                     conn.send({
@@ -159,11 +159,11 @@ class Server:
             }
         
         elif command == Command.WAIT_IDLE:
-            ret = self.pipeline.wait_idle()
+            ret = self.pipeline.wait_idle(abort_on_sleep=False)
             return {
                 "node": req["node"],
                 "command": command,
-                "sleep": not ret,
+                "reset": not ret,
                 "n_idle": self.pipeline.get_n_idle()
             }
 
@@ -325,10 +325,14 @@ class Client:
                 break
 
             if response["output"]:
-                threading.Thread(target=output_handler, args=(response["output"],)).start()
+                threading.Thread(target=self._output_routine, args=(response["output"], output_handler)).start()
         
         conn.close()
 
+    def _output_routine(self, items, output_handler):
+        for item in items:
+            output_handler(item)
+        
 
     def send_command_stream_output(self, output_handler, detach=True):
         if detach:
@@ -347,7 +351,7 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
-        return (resp["sleep"], resp["n_idle"])
+        return (resp["reset"], resp["n_idle"])
 
     def send_command_wait_empty(self):
         conn = util.connect_timeout(self.addr, retry=True)

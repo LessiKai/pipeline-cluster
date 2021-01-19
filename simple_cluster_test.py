@@ -4,24 +4,24 @@ import multiprocessing as mp
 import json
 
 
-logger_addr = ("", 5555)
-logger_file = "log.txt"
+log_server_addr = ("", 5555)
+log_file = "log.txt"
 
 import time
 def wait(item):
-    mpl.log("waiting...")
+    mpl.log(item)
     time.sleep(2)
-    return item
+    return (item, item)
 
 def wait_more(item):
-    mpl.log("waiting more...")
+    mpl.log(item)
     time.sleep(4)
     return item
 
-pipeline_tasks = [
+taskchain = [
     {
         "function": wait,
-        "is_generator": False
+        "is_generator": True
     },
     {
         "function": wait_more,
@@ -31,10 +31,10 @@ pipeline_tasks = [
 
 
 def node_routine(addr):
-    node.Server(addr, logger_addr, conn_buffer_size=2).serve()
+    node.Server(addr, log_server_addr, conn_buffer_size=2).serve()
 
 if __name__ == "__main__":
-    mpl.serve(logger_addr, logger_file, conn_buffer_size=4, detach=True)
+    mpl.serve(log_server_addr, log_file, conn_buffer_size=4, detach=True)
 
     node_addrs = [("", 5600), ("", 5601)]
     nodes = [mp.Process(target=node_routine, args=(addr, )) for addr in node_addrs]
@@ -42,13 +42,10 @@ if __name__ == "__main__":
         n.start()
 
     root = root.Root(*node_addrs)
-    root.setup("example_pipeline", 1.0, pipeline_tasks)
-    print(json.dumps(root.status(), indent=4))
-    root.boot()
-    root.schedule()
-    root.feed(True, True, True, True, True)
+    root.setup("example_pipeline", 1.0, taskchain)
+    root.boot(lambda item: print("output: " + item))
+    root.feed("hello world!", "hello world!")
     root.wait_empty()
-    print(json.dumps(root.status(), indent=4))
     root.reset()
 
     for node in nodes:
