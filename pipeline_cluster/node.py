@@ -3,6 +3,7 @@ import multiprocessing as mp
 import multiprocessing.connection as mpc
 from pipeline_cluster import util
 from pipeline_cluster import pipeline
+import signal
 
 class Command:
     ERROR = "ERROR"
@@ -29,11 +30,19 @@ class Server:
         self.log_addr = log_addr
         self.pipeline = None
 
+    def _signal_handler(self, signum, frame):
+        if self.pipeline is not None and self.pipeline.is_running():
+            self.pipeline.reset()
+        exit(0)
+
     def serve(self):
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        
         with mpc.Listener(self.addr, "AF_INET", self.conn_buffer_size, None) as lst:
             while True:
                 conn = lst.accept()
-                threading.Thread(target=self._handle_connection, args=(conn, lst.last_accepted)).start()
+                threading.Thread(target=self._handle_connection, args=(conn, lst.last_accepted), daemon=True).start()
 
     def _handle_connection(self, conn, caddr):
         while True:
@@ -336,7 +345,7 @@ class Client:
 
     def send_command_stream_output(self, output_handler, detach=True):
         if detach:
-            threading.Thread(target=self._stream_routine, args=(output_handler, )).start()
+            threading.Thread(target=self._stream_routine, args=(output_handler, ), daemon=True).start()
         else:
             self._stream_routine(output_handler)
 

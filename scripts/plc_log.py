@@ -4,12 +4,10 @@ import argparse
 import os
 import signal
 
-def signal_handler(signum, frame):
-    print("terminating server")
-    exit(0)
-
-
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, lambda signum, frame: exit(0))
+    signal.signal(signal.SIGTERM, lambda signum, frame: exit(0))
+
     parser = argparse.ArgumentParser(description="log server CLI of the pipeline-cluster package")
     parser.add_argument("--interface", "-i", type=str, default="localhost")
     parser.add_argument("--port", "-p", type=int, default=5555)
@@ -25,9 +23,9 @@ if __name__ == "__main__":
             exit(1)
         
     if args.buffer < 1:
-        print("The connection buffer size has to be greater than 0.")
+        print("The connection buffer size has to be greater than 0")
         exit(1)
-        
+
     port_range = (0, 65535)
     if args.port < port_range[0] or args.port > port_range[1]:
         print("Port " + str(args.port) + " is not in the valid port range of " + str(port_range))
@@ -38,7 +36,4 @@ if __name__ == "__main__":
     print("serving at " + args.interface + ":" + str(args.port))
     print("logfile: " + logfile)
     print("connection buffer size: " + str(args.buffer))
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
     mpl.serve(addr, logfile, args.buffer, detach=False)

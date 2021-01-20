@@ -17,11 +17,15 @@ def _handle_connection(conn, caddr):
             conn.send("OK")
         except EOFError as e: # maybe this should catch all exceptions in case the client disconnects while sending
             break
+        except ConnectionResetError as e:
+            break
     
     conn.close()
-    
 
 def _serve(addr, conn_buffer_size, filename):
+    signal.signal(signal.SIGINT, lambda signum, frame: exit(0))
+    signal.signal(signal.SIGTERM, lambda signum, frame: exit(0))
+    
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     file_logger = logging.FileHandler(filename, "a", "utf-8")
@@ -42,7 +46,7 @@ def serve(addr, filename, conn_buffer_size=2, detach=False):
         proc = mp.Process(target=_serve, args=(addr, conn_buffer_size, filename), daemon=True).start()
     else:
         _serve(addr, conn_buffer_size, filename)
-
+        
 
 server_address = ("", 5555)
 

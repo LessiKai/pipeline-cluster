@@ -8,6 +8,10 @@ from pipeline_cluster import util
 Task = namedtuple("Task", ["function", "name", "is_generator", "input_buffer", "output_buffer"])
 
 
+def _worker_signal_handler(signum, frame):
+    print(signum)
+    mpl.log("worker terminated")
+    exit(1)
 
 def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_counter, terminate_counter, state_cond):
     """
@@ -97,7 +101,7 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                     with state_cond:
                         if terminate_counter.value() == 1:
                             mpl.log("worker terminated")
-                            exit(1)
+                            exit(0)
 
                     curr_task = taskchain[j]
                     item = curr_task.function(item)

@@ -116,3 +116,4 @@ A single node cluster example is implemented in simple_cluster_test.py.
 
 ## bugs
 - on systems other than linux a warning is generated on shutdown, informing about leaked semaphores. This can be ignored. [bug report](https://bugs.python.org/issue38119)
+- creating a taskchain in the python shell can produce errors due to the multiprocessing lib. This should be avoided and wont be fixed because it's the intended behaviour. [bug report](https://bugs.python.org/issue25053), [stackoverflow](https://stackoverflow.com/questions/41385708/multiprocessing-example-giving-attributeerror)

@@ -38,7 +38,7 @@ class Root:
             try:
                 cli.send_command_boot(n_worker=None) # boot pipeline with #worker = #cores
                 cli.send_command_stream_output(output_handler, detach=True)
-                threading.Thread(target=self._client_scheduler_routine, args=(cli,)).start()
+                threading.Thread(target=self._client_scheduler_routine, args=(cli,), daemon=True).start()
             except Exception as e:
                 raise e
 
