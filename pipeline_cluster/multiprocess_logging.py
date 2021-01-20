@@ -13,7 +13,7 @@ def _handle_connection(conn, caddr):
     while True:
         try:
             msg = conn.recv()
-            logging.debug(msg)
+            logging.debug("[" + time.strftime("%d %m %Y %H:%M:%S") + " - " + caddr[0] + "] " + msg)
             conn.send("OK")
         except EOFError as e: # maybe this should catch all exceptions in case the client disconnects while sending
             break
