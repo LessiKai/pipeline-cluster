@@ -4,7 +4,7 @@ import multiprocessing as mp
 import json
 
 
-log_server_addr = ("", 5555)
+log_server_addr = ("", 5000)
 log_file = "log.txt"
 
 import time
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     root = root.Root(*node_addrs)
     root.setup("example_pipeline", 1.0, taskchain)
     root.boot(lambda item: print("output: " + item))
-    root.feed("hello world!", "hello world!")
+    root.feed("hello world!", "its me an input item!")
     root.wait_empty()
     root.reset()
 
