@@ -9,7 +9,7 @@
 
 ```
 git clone https://github.com/LessiKai/pipeline-cluster.git
-cd pipeline_cluster
+cd pipeline-cluster
 pip install --user .
 ```
 
