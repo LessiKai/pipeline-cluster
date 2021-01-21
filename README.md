@@ -8,7 +8,7 @@
 ## installation 
 
 ```
-git clone https://github.com/LessiKai/pipeline_cluster.git
+git clone https://github.com/LessiKai/pipeline-cluster.git
 cd pipeline_cluster
 pip install --user .
 ```
