@@ -14,7 +14,6 @@ def _handle_connection(conn, caddr):
         try:
             msg = conn.recv()
             logging.debug("[" + time.strftime("%d %m %Y %H:%M:%S") + " - " + caddr[0] + "] " + msg)
-            conn.send("OK")
         except EOFError as e: # maybe this should catch all exceptions in case the client disconnects while sending
             break
         except ConnectionResetError as e:
@@ -37,8 +36,7 @@ def _serve(addr, conn_buffer_size, filename):
         while True:
             conn = lst.accept()
             caddr = lst.last_accepted
-            conn_thread = threading.Thread(target=_handle_connection, args=(conn, caddr))
-            conn_thread.start()
+            threading.Thread(target=_handle_connection, args=(conn, caddr)).start()
         
 
 def serve(addr, filename, conn_buffer_size=2, detach=False):
@@ -55,10 +53,15 @@ def configure(log_addr):
     server_address = log_addr
 
 def log(msg):
-    conn = util.connect_timeout(server_address, retry=True)
-    conn.send(msg)
-    response = conn.recv()
-    if response != "OK":
-        raise ConnectionError()
+    while True:
+        conn = util.connect_timeout(server_address, retry=True)
+        try:
+            conn.send(msg)
+            conn.close()
+            break
+        except Exception:
+            # possible infinit loop here if there is no log server
+            # TODO: implement timeout or retry cap
+            continue     
 
 

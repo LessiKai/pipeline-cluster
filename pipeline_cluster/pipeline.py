@@ -4,6 +4,7 @@ import signal
 import multiprocessing as mp
 import pipeline_cluster.multiprocess_logging as mpl
 from pipeline_cluster import util
+import time
 
 Task = namedtuple("Task", ["function", "name", "is_generator", "input_buffer", "output_buffer"])
 

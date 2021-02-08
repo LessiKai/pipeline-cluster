@@ -2,6 +2,7 @@ from pipeline_cluster import root, node
 import pipeline_cluster.multiprocess_logging as mpl
 import multiprocessing as mp
 import json
+import time
 
 
 log_server_addr = ("", 5000)
@@ -52,4 +53,3 @@ if __name__ == "__main__":
         node.terminate()
     for node in nodes:
         node.join()
-        
