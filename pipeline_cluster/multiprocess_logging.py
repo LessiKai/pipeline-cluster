@@ -29,7 +29,7 @@ def _serve(addr, conn_buffer_size, filename):
     root_logger.setLevel(logging.DEBUG)
     file_logger = logging.FileHandler(filename, "a", "utf-8")
     root_logger.addHandler(file_logger)
-    log_handler = logging.StreamHandler(sys.stderr)
+    log_handler = logging.StreamHandler(sys.stdout)
     root_logger.addHandler(log_handler)
     
     with mpc.Listener(addr, "AF_INET", conn_buffer_size, None) as lst:
@@ -63,5 +63,5 @@ def log(msg):
             # possible infinit loop here if there is no log server
             # TODO: implement timeout or retry cap
             continue     
-
+    print(msg)
 
