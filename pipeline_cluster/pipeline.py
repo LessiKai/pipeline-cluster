@@ -5,6 +5,7 @@ import multiprocessing as mp
 import pipeline_cluster.multiprocess_logging as mpl
 from pipeline_cluster import util
 import time
+import traceback
 
 Task = namedtuple("Task", ["function", "name", "is_generator", "input_buffer", "output_buffer"])
 
@@ -69,7 +70,12 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                     new_items_counter.dec()
 
                 # handle first item
-                item = curr_task.function(item)
+                try:
+                    item = curr_task.function(item)
+                except Exception:
+                    mpl.log("Item dropped due to exception:\n" + traceback.format_exc())
+                    break
+
                 if item is None:
                     break
 
@@ -105,7 +111,13 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                             exit(0)
 
                     curr_task = taskchain[j]
-                    item = curr_task.function(item)
+                    
+                    try:
+                        item = curr_task.function(item)
+                    except Exception:
+                        mpl.log("Item dropped due to exception:\n" + traceback.format_exc())
+                        break
+
                     if item is None:
                         break
                     is_last_task = j == len(taskchain) - 1
