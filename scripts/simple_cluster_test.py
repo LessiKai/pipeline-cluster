@@ -37,7 +37,7 @@ def node_routine(addr):
 if __name__ == "__main__":
     mpl.serve(log_server_addr, log_file, conn_buffer_size=4, detach=True)
 
-    node_addrs = [("", 5600), ("", 5601)]
+    node_addrs = [("localhost", 5600), ("localhost", 5601)]
     nodes = [mp.Process(target=node_routine, args=(addr, )) for addr in node_addrs]
     for n in nodes:
         n.start()

@@ -7,7 +7,7 @@ from pipeline_cluster import util
 import time
 import traceback
 
-Task = namedtuple("Task", ["function", "name", "is_generator", "input_buffer", "output_buffer"])
+Task = namedtuple("Task", ["function", "name", "args", "is_generator", "is_class", "input_buffer", "output_buffer"])
 
 
 def _worker_signal_handler(signum, frame):
@@ -31,12 +31,13 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
     # TODO: ignore/handle more signals if needed
 
     mpl.configure(log_addr)
-    mpl.log("worker started")
+
+    # prepare classes taskchain
+    taskchain = [Task(t.function(*t.args), *t[1:]) if t.is_class else t for t in taskchain]
 
     while True:
         with state_cond:
             if terminate_counter.value() == 1:
-                mpl.log("worker terminated")
                 exit(0)
 
             if sleep_counter.value() == 1 or new_items_counter.value() == 0:
@@ -46,7 +47,6 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                 while True:
                     state_cond.wait()
                     if terminate_counter.value() == 1:
-                        mpl.log("worker terminated")
                         exit(0)
 
                     if not sleep_counter.value() == 1 and new_items_counter.value() != 0:
@@ -107,7 +107,6 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                 for j in range(i + 1, len(taskchain)):
                     with state_cond:
                         if terminate_counter.value() == 1:
-                            mpl.log("worker terminated")
                             exit(0)
 
                     curr_task = taskchain[j]
@@ -161,7 +160,7 @@ class Pipeline:
         self.state_cond = mp.Condition()
 
 
-    def add_task(self, *tasks, is_generator=False):
+    def add_task(self, task, args=set(), is_generator=False):
         """
         Adds a task into the current pipeline taskchain.
         A task is a function with one input parameter and one pickable ouput item.
@@ -171,22 +170,20 @@ class Pipeline:
                                         succeeding buffer for each generator function, 
                                         taskchain output buffer
         """
-        for t in tasks:
-            assert inspect.isfunction(t)
-            n_params = len(inspect.signature(t).parameters)
-            assert n_params == 1
+        assert inspect.isfunction(task) or inspect.isclass(task)
+        n_params = len(inspect.signature(task).parameters)
+        assert n_params == 1
 
-            input_buffer = None
-            if self.taskchain:
-                prev_task = self.taskchain[-1]
-                if not prev_task.is_generator:
-                    self.taskchain[-1] = Task(prev_task.function, prev_task.name, prev_task.is_generator, prev_task.input_buffer, None)
-                else:
-                    input_buffer = prev_task.output_buffer
+        input_buffer = None
+        if self.taskchain:
+            prev_task = self.taskchain[-1]
+            if not prev_task.is_generator:
+                self.taskchain[-1] = Task(prev_task.function, prev_task.name, prev_task.args, prev_task.is_generator, prev_task.is_class, prev_task.input_buffer, None)
             else:
-                input_buffer = util.SharedBuffer()
-
-            self.taskchain.append(Task(t, t.__name__, is_generator, input_buffer, util.SharedBuffer()))
+                input_buffer = prev_task.output_buffer
+        else:
+            input_buffer = util.SharedBuffer()
+        self.taskchain.append(Task(task, task.__name__, args, is_generator, inspect.isclass(task), input_buffer, util.SharedBuffer()))
 
 
     def __str__(self):

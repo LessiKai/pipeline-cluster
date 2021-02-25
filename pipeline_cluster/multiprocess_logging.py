@@ -6,6 +6,7 @@ import logging
 import sys
 import signal
 import time
+import os
 from pipeline_cluster import util
 
 
@@ -13,7 +14,7 @@ def _handle_connection(conn, caddr):
     while True:
         try:
             msg = conn.recv()
-            logging.debug("[" + time.strftime("%d %m %Y %H:%M:%S") + " - " + caddr[0] + "] " + msg)
+            logging.debug("[" + time.strftime("%d %m %Y %H:%M:%S") + " - " + caddr[0] + " - " + str(msg["pid"]) + "] " + msg["message"])
         except EOFError as e: # maybe this should catch all exceptions in case the client disconnects while sending
             break
         except ConnectionResetError as e:
@@ -52,11 +53,15 @@ def configure(log_addr):
     global server_address
     server_address = log_addr
 
-def log(msg):
+def log(msg, addr=None):
+    addr = addr if addr is not None else server_address
     while True:
-        conn = util.connect_timeout(server_address, retry=True)
+        conn = util.connect_timeout(addr, retry=True)
         try:
-            conn.send(msg)
+            conn.send({
+                "pid": os.getpid(),
+                "message": msg
+            })
             conn.close()
             break
         except Exception:

@@ -3,6 +3,7 @@ import multiprocessing as mp
 import multiprocessing.connection as mpc
 from pipeline_cluster import util
 from pipeline_cluster import pipeline
+import pipeline_cluster.multiprocess_logging as mpl
 import signal
 
 class Command:
@@ -38,7 +39,7 @@ class Server:
     def serve(self):
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-        
+        mpl.log("node server started at " + self.addr[0] + ":" + str(self.addr[1]), self.log_addr)
         with mpc.Listener(self.addr, "AF_INET", self.conn_buffer_size, None) as lst:
             while True:
                 conn = lst.accept()
@@ -61,12 +62,14 @@ class Server:
                 "command": Command.ERROR,
                 "describtion": "request has to be of type dict"
             }
+            mpl.log("unknown request, request has to be of type dict", self.log_addr)
 
         command = req["command"]
         
         if command == Command.SETUP:
 
             if self.pipeline is not None and not self.pipeline.is_reset():
+                mpl.log("(SETUP) previous pipeline is still running", self.log_addr)
                 return {
                     "node": req["node"],
                     "command": Command.ERROR,
@@ -79,12 +82,14 @@ class Server:
                 except:
                     pass # TODO: currently an assertion thus no exception, maybe change? (pipeline add_task)
 
+            mpl.log("(SETUP) configured taskchain: " + str(self.pipeline), self.log_addr)
             return {
                 "node": req["node"],
                 "command": command
             }
 
         elif command == Command.STATUS:
+            mpl.log("(STATUS)", self.log_addr)
             return {
                 "node": req["node"],
                 "command": command,
@@ -99,11 +104,13 @@ class Server:
             try:
                 self.pipeline.boot(n_worker=n_worker)
             except Exception as e:
+                mpl.log("(BOOT) failed booting workers: " + str(e), self.log_addr)
                 return {
                     "node": req["node"],
                     "command": Command.ERROR,
                     "describtion": str(e)
                 }
+            mpl.log("(BOOT) " + str(n_worker) + " workers bootet", self.log_addr)
             return {
                 "node": req["node"],
                 "command": command
@@ -113,11 +120,13 @@ class Server:
             try:
                 self.pipeline.reset()
             except Exception as e:
+                mpl.log("(RESET) reset failed", self.log_addr)
                 return {
                     "node": req["node"],
                     "command": Command.ERROR,
                     "describtion": str(e)
                 }
+            mpl.log("(RESET) workers terminated", self.log_addr)
             return {
                 "node": req["node"],
                 "command": command
@@ -127,18 +136,19 @@ class Server:
             try:
                 self.pipeline.feed(*req["items"])
             except Exception as e:
+                mpl.log("(FEED) failed feeding input items: " + str(e), self.log_addr)
                 return {
                     "node": req["node"],
                     "command": Command.ERROR,
                     "descibtion": str(e)
                 }
+            mpl.log("(FEED) feeded " + str(len(req["items"])) + " input items", self.log_addr)
             return {
                 "node": req["node"],
                 "command": command
             }
 
         elif command == Command.STREAM_OUTPUT:
-
             while self.pipeline.wait_output(abort_on_sleep=False):
                 output = self.pipeline.get_output()
                 if output:
@@ -155,6 +165,7 @@ class Server:
 
         elif command == Command.SLEEP:
             self.pipeline.sleep()
+            mpl.log("(SLEEP)", self.log_addr)
             return {
                 "node": req["node"],
                 "command": command
@@ -162,6 +173,7 @@ class Server:
 
         elif command == Command.WAKEUP:
             self.pipeline.wakeup()
+            mpl.log("(WAKEUP)", self.log_addr)
             return {
                 "node": req["node"],
                 "command": command
@@ -192,6 +204,7 @@ class Server:
             }
 
         else:
+            mpl.log("unknown command in request")
             return {
                 "node": req["node"],
                 "command": Command.ERROR,
