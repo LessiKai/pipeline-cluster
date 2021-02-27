@@ -25,10 +25,11 @@ class Command:
 
 
 class Server:
-    def __init__(self, addr, log_addr, conn_buffer_size=2):
+    def __init__(self, addr, log_addr, conn_buffer_size=2, benchmark_folder="/tmp/pipeline-cluster-benchmarks"):
         self.addr = addr
         self.conn_buffer_size = conn_buffer_size
         self.log_addr = log_addr
+        self.benchmark_folder = benchmark_folder
         self.pipeline = None
 
     def _signal_handler(self, signum, frame):
@@ -75,11 +76,12 @@ class Server:
                     "command": Command.ERROR,
                     "describtion": "previous pipeline is still running"
                 }
-            self.pipeline = pipeline.Pipeline(self.log_addr, name=req["name"], version=req["version"]) # TODO:add a lock or just dont call it while another process is requesting 
+            self.pipeline = pipeline.Pipeline(self.log_addr, name=req["name"], version=req["version"], benchmark_folder=self.benchmark_folder) # TODO:add a lock or just dont call it while another process is requesting 
             for task in req["tasks"]:
                 try:
-                    self.pipeline.add_task(task["function"], is_generator=task["is_generator"])
-                except:
+                    self.pipeline.add_task(task["function"], args=set() if task.get("args", None) is None else task["args"], is_generator=task["is_generator"])
+                except Exception as e:
+                    print(str(e))
                     pass # TODO: currently an assertion thus no exception, maybe change? (pipeline add_task)
 
             mpl.log("(SETUP) configured taskchain: " + str(self.pipeline), self.log_addr)
@@ -136,13 +138,11 @@ class Server:
             try:
                 self.pipeline.feed(*req["items"])
             except Exception as e:
-                mpl.log("(FEED) failed feeding input items: " + str(e), self.log_addr)
                 return {
                     "node": req["node"],
                     "command": Command.ERROR,
                     "descibtion": str(e)
                 }
-            mpl.log("(FEED) feeded " + str(len(req["items"])) + " input items", self.log_addr)
             return {
                 "node": req["node"],
                 "command": command

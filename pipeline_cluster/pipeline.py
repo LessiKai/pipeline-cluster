@@ -6,6 +6,9 @@ import pipeline_cluster.multiprocess_logging as mpl
 from pipeline_cluster import util
 import time
 import traceback
+import os
+import json
+import time
 
 Task = namedtuple("Task", ["function", "name", "args", "is_generator", "is_class", "input_buffer", "output_buffer"])
 
@@ -15,7 +18,7 @@ def _worker_signal_handler(signum, frame):
     mpl.log("worker terminated")
     exit(1)
 
-def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_counter, terminate_counter, state_cond):
+def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_counter, terminate_counter, state_cond, benchmark_folder):
     """
     The worker routine for pipeline workers.
     Workers feed items in deepest first order.
@@ -31,11 +34,23 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
     # TODO: ignore/handle more signals if needed
 
     mpl.configure(log_addr)
+    benchmark_file = os.path.join(benchmark_folder, str(os.getpid()))
+    #benchmark_fd = open(benchmark_file, "w")
+    benchmark = [{
+        "task": t.name,
+        "processed": 0,
+        "time": 0
+    } for t in taskchain]
 
     # prepare classes taskchain
     taskchain = [Task(t.function(*t.args), *t[1:]) if t.is_class else t for t in taskchain]
 
     while True:
+        #benchmark_fd.seek(0)
+        with open(benchmark_file, "w") as fd:
+            json.dump(benchmark, fd)
+        #json.dump(benchmark, benchmark_fd)
+
         with state_cond:
             if terminate_counter.value() == 1:
                 exit(0)
@@ -56,6 +71,7 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
 
         for i in reversed(range(len(taskchain))):
             curr_task = taskchain[i]
+            curr_benchmark = benchmark[i]
             if curr_task.input_buffer is not None and not curr_task.input_buffer.empty():
                 try:
                     item = curr_task.input_buffer.dequeue()
@@ -70,11 +86,15 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                     new_items_counter.dec()
 
                 # handle first item
+                start_time = time.time()
                 try:
                     item = curr_task.function(item)
                 except Exception:
                     mpl.log("Item dropped due to exception:\n" + traceback.format_exc())
                     break
+                d_time = time.time() - start_time
+                curr_benchmark["time"] += d_time
+                curr_benchmark["processed"] += 1
 
                 if item is None:
                     break
@@ -110,12 +130,17 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
                             exit(0)
 
                     curr_task = taskchain[j]
+                    curr_benchmark = benchmark[j]
                     
+                    start_time = time.time()
                     try:
                         item = curr_task.function(item)
                     except Exception:
                         mpl.log("Item dropped due to exception:\n" + traceback.format_exc())
                         break
+                    d_time = time.time() - start_time
+                    curr_benchmark["time"] += d_time
+                    curr_benchmark["processed"] += 1
 
                     if item is None:
                         break
@@ -147,11 +172,12 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
 
 
 class Pipeline:
-    def __init__(self, log_addr, version=1.0, name="pipeline"):
+    def __init__(self, log_addr, version=1.0, name="pipeline", benchmark_folder="/tmp/pipeline-cluster-benchmarks"):
         self.version = version
         self.log_addr = log_addr
         self.taskchain = []
         self.worker = []
+        self.benchmark_folder = benchmark_folder
 
         self.new_items_counter = util.SharedCounter()
         self.idle_counter = util.SharedCounter()
@@ -159,6 +185,8 @@ class Pipeline:
         self.terminate_counter = util.SharedCounter()
         self.state_cond = mp.Condition()
 
+        if not os.path.isdir(self.benchmark_folder):
+            os.mkdir(self.benchmark_folder)
 
     def add_task(self, task, args=set(), is_generator=False):
         """
@@ -171,8 +199,11 @@ class Pipeline:
                                         taskchain output buffer
         """
         assert inspect.isfunction(task) or inspect.isclass(task)
-        n_params = len(inspect.signature(task).parameters)
-        assert n_params == 1
+        n_params = len(inspect.signature(task).parameters) if inspect.isfunction(task) else len(inspect.signature(task.__call__).parameters)
+        if inspect.isfunction(task):
+            assert n_params == 1
+        else:
+            assert n_params == 2
 
         input_buffer = None
         if self.taskchain:
@@ -219,7 +250,15 @@ class Pipeline:
         """
         assert self.is_reset()
 
-        self.worker = [mp.Process(target=_worker_routine, args=(self.taskchain, self.log_addr, self.new_items_counter, self.idle_counter, self.sleep_counter, self.terminate_counter, self.state_cond), daemon=True) for _ in range(n_worker)]
+        # setup benchmark folder for specific boot
+        last_benchmark_folders = [os.path.join(self.benchmark_folder, d) for d in os.listdir(self.benchmark_folder) if os.path.isdir(os.path.join(self.benchmark_folder, d))]
+        last_benchmark_id = max([int(os.path.basename(d)) for d in last_benchmark_folders])
+        
+        benchmark_id = last_benchmark_id + 1 
+        curr_benchmark_folder = os.path.join(self.benchmark_folder, str(benchmark_id))
+        os.mkdir(curr_benchmark_folder)
+
+        self.worker = [mp.Process(target=_worker_routine, args=(self.taskchain, self.log_addr, self.new_items_counter, self.idle_counter, self.sleep_counter, self.terminate_counter, self.state_cond, curr_benchmark_folder), daemon=True) for _ in range(n_worker)]
         for w in self.worker:
             w.start()
 
