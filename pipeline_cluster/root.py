@@ -105,15 +105,23 @@ class Root:
 
     def wait_input(self):
         with self.scheduler_state_cond:
-            while self.queue_count > 0:
+            while self.queue_count > 0 and not self.is_reset:
                 self.scheduler_state_cond.wait()
+
+            if self.is_reset:
+                return False
+            
+            return True
 
     def wait_empty(self):
         with self.scheduler_state_cond:
-            while self.queue_count > 0:
+            while self.queue_count > 0 and not self.is_reset:
                 self.scheduler_state_cond.wait()
+
+        if self.is_reset:
+            return False
 
         for cli in self.node_clients:
             cli.send_command_wait_empty()
 
-    
+        return True
