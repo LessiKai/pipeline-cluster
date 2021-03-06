@@ -35,7 +35,6 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
 
     mpl.configure(log_addr)
     benchmark_file = os.path.join(benchmark_folder, str(os.getpid()))
-    #benchmark_fd = open(benchmark_file, "w")
     benchmark = [{
         "task": t.name,
         "processed": 0,
@@ -46,10 +45,8 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
     taskchain = [Task(t.function(*t.args), *t[1:]) if t.is_class else t for t in taskchain]
 
     while True:
-        #benchmark_fd.seek(0)
         with open(benchmark_file, "w") as fd:
             json.dump(benchmark, fd)
-        #json.dump(benchmark, benchmark_fd)
 
         with state_cond:
             if terminate_counter.value() == 1:
@@ -252,7 +249,7 @@ class Pipeline:
 
         # setup benchmark folder for specific boot
         last_benchmark_folders = [os.path.join(self.benchmark_folder, d) for d in os.listdir(self.benchmark_folder) if os.path.isdir(os.path.join(self.benchmark_folder, d))]
-        last_benchmark_id = max([int(os.path.basename(d)) for d in last_benchmark_folders])
+        last_benchmark_id = max([int(os.path.basename(d)) for d in last_benchmark_folders], default=0)
         
         benchmark_id = last_benchmark_id + 1 
         curr_benchmark_folder = os.path.join(self.benchmark_folder, str(benchmark_id))
@@ -272,7 +269,8 @@ class Pipeline:
         TODO: implement automatic taskchain rebuild
         To get a controlled shutdown, first set the pipeline asleep and wait for all workers to finish, then reset.
         """
-        assert self.is_running()
+        if not self.is_running():
+            return
 
         with self.state_cond:
             self.terminate_counter.set(1)

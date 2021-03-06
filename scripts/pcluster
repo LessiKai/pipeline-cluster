@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import json
+
+import pipeline_cluster.node
+import pipeline_cluster.multiprocess_logging as mpl
+
+LOG_CONNECTION_BUFFER_SIZE = 2
+NODE_CONNECTION_BUFFER_SIZE = 2
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+
+    log_parser = subparsers.add_parser("log")
+    log_parser.add_argument("--host", type=str, default="localhost")
+    log_parser.add_argument("--port", type=int, default=5555)
+    log_parser.add_argument("--outfile", type=str, default="pipeline-cluster.log")
+
+    node_parser = subparsers.add_parser("node")
+    node_parser.add_argument("--host", type=str, default="localhost")
+    node_parser.add_argument("--port", type=int, default=6000)
+    node_parser.add_argument("--log-host", type=str, default="localhost")
+    node_parser.add_argument("--log-port", type=int, default=5555)
+
+    benchmark_parser = subparsers.add_parser("benchmark")
+    benchmark_parser.add_argument("dir", nargs="?", type=str, default="/tmp/pipeline-cluster-benchmarks")
+
+    args = parser.parse_args()
+
+    if args.command == "log":
+        if os.path.isfile(args.outfile):
+            if not input(args.outfile + " already exists. Proceed? (y/n) ").strip() in ["y", "Y", "j", "J"]:
+                exit(1)
+            
+        print("serving at " + args.host + ":" + str(args.port))
+        print("logfile: " + args.outfile)
+        mpl.serve((args.host, args.port), args.outfile, LOG_CONNECTION_BUFFER_SIZE)
+    
+    elif args.command == "node":
+        print("serving at " + args.host + ":" + str(args.port))
+        print("log server: " + args.log_host + ":" + str(args.log_port))
+        pipeline_cluster.node.Server((args.host, args.port), (args.log_host, args.log_port), NODE_CONNECTION_BUFFER_SIZE).serve()
+
+    elif args.command == "benchmark":
+        if not os.path.isdir(args.dir):
+            print("no such directory: " + args.dir)
+            exit(1)
+
+        benchmarks = []
+        benchmark_files = [os.path.join(args.dir, f) for f in os.listdir(args.dir) if os.path.isfile(os.path.join(args.dir, f))]
+        for f in benchmark_files:
+            with open(f, "r") as fd:
+                try:
+                    benchmarks.append(json.load(fd))
+                except:
+                    print("could not load " + f)
+        
+        merged_benchmarks = []
+        for bm in benchmarks:
+            if not merged_benchmarks:
+                merged_benchmarks = bm
+            else:
+                for i, t in enumerate(bm):
+                    merged_benchmarks[i]["processed"] += t["processed"]
+                    merged_benchmarks[i]["time"] += t["time"]
+
+        benchmark_id = int(os.path.basename(args.dir))
+
+        print("--- summary benchmark " + str(benchmark_id) + " ---")
+        print("#workers: " + str(len(benchmark_files)))
+        for task in merged_benchmarks:
+            print()
+            print("taskname: " + task["task"])
+            print("processed: " + str(task["processed"]))
+            print("time: " + str(task["time"] / len(benchmark_files)))
+            print("avg time: " + str(task["time"] / task["processed"]))

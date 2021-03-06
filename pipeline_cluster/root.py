@@ -20,6 +20,9 @@ class Root:
         for cli in self.node_clients:
             try:
                 cli.send_command_setup(name, version, tasks)
+            except TimeoutError:
+                raise TimeoutError("could not connect to node " + cli.addr[0] + ":" + str(cli.addr[1]))
+
             except Exception as e:
                 raise e
     
