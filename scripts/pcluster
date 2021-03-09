@@ -26,7 +26,7 @@ if __name__ == "__main__":
     node_parser.add_argument("--log-port", type=int, default=5555)
 
     benchmark_parser = subparsers.add_parser("benchmark")
-    benchmark_parser.add_argument("dir", nargs="?", type=str, default="/tmp/pipeline-cluster-benchmarks")
+    benchmark_parser.add_argument("dir", nargs="?", type=str, default="/tmp/pipeline-cluster-benchmarks/1")
 
     args = parser.parse_args()
 
