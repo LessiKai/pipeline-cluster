@@ -92,9 +92,18 @@ class Server:
 
         elif command == Command.STATUS:
             mpl.log("(STATUS)", self.log_addr)
+
+            if self.pipeline is None:
+                return {
+                    "node": req["node"],
+                    "command": command
+                }
+
             return {
                 "node": req["node"],
                 "command": command,
+                "name": self.pipeline.get_name(),
+                "version": self.pipeline.get_version(),
                 "awake": self.pipeline.is_awake(),
                 "running": self.pipeline.is_running(),
                 "n_worker": self.pipeline.get_n_worker(),
@@ -215,8 +224,8 @@ class Server:
 
 
 class Client:
-    def __init__(self, addr):
-        self.addr = addr
+    def __init__(self, host, port):
+        self.addr = (host, port)
 
 
     def send_command_setup(self, name, version, tasks):
@@ -237,8 +246,8 @@ class Client:
             raise Exception(resp["describtion"])
 
 
-    def send_command_status(self):
-        conn = util.connect_timeout(self.addr, retry=True)
+    def send_command_status(self, timeout=1, retry_sleep=0.1):
+        conn = util.connect_timeout(self.addr, retry=True, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -249,6 +258,7 @@ class Client:
         resp = conn.recv()
         conn.close()
         resp.pop("command", None)
+        resp.pop("node", None)
         return resp
     
     def send_command_boot(self, n_worker=None):

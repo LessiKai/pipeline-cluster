@@ -171,6 +171,7 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
 class Pipeline:
     def __init__(self, log_addr, version=1.0, name="pipeline", benchmark_folder="/tmp/pipeline-cluster-benchmarks"):
         self.version = version
+        self.name = name
         self.log_addr = log_addr
         self.taskchain = []
         self.worker = []
@@ -227,6 +228,9 @@ class Pipeline:
 
     def get_version(self):
         return self.version
+
+    def get_name(self):
+        return self.name
 
     def get_n_idle(self):
         """

@@ -1,19 +1,61 @@
 from pipeline_cluster import node
 import threading
 import queue
+import ipaddress
+import pipeline_cluster.multiprocess_logging as mpl
 
 
 
 
 # TODO implement all function asyncron that clients can be managed parallel
 class Root:
-    def __init__(self, *node_addrs):
-        self.node_clients = [node.Client(addr) for addr in node_addrs]
+    def __init__(self, node_addrs=[]):
+        self.node_clients = []
 
         self.input_queue = queue.Queue()
         self.queue_count = 0
         self.is_reset = True
         self.scheduler_state_cond = threading.Condition()
+
+        self.add_nodes(node_addrs)
+
+    def search_nodes(self, network="127.0.0.0/24", port=6000, verbose=False):
+        with self.scheduler_state_cond:
+            if not self.is_reset:
+                raise RuntimeError("The pipeline-cluster has to be reset to be able to add more nodes")
+
+        network = ipaddress.ip_network(network, strict=False)
+        if verbose:
+            mpl.log("scanning network " + str(network) + " for nodes on port " + str(port))
+        for host in [h for h in network if (h, port) not in [n.addr for n in self.node_clients]]:
+            node_client = node.Client(str(host), port)
+            try:
+                node_status = node_client.send_command_status(timeout=0.5, retry_sleep=0.1)
+            except:
+                continue
+
+            if not node_status or not node_status["running"]:
+                if verbose:
+                    mpl.log("node found at " + str(host) + ":" + str(port))
+                self.node_clients.append(node_client)
+            else:
+                raise RuntimeError("node at " + str(host) + ":" + str(port) + " is not reset. Is there another root running?\nThe pipeline-cluster only supports one root at a time.")
+
+    def add_node(self, host, port):
+        with self.scheduler_state_cond:
+            if not self.is_reset:
+                raise RuntimeError("The pipeline-cluster has to be reset to be able to add more nodes")
+
+        node_client = node.Client(host, port)
+        node_status = node_client.send_command_status(timeout=10, retry_sleep=1)
+        if not node_status or not node_status["running"]:
+            self.node_clients.append(node_client)
+        else:
+            raise RuntimeError("The node at " + str(host) + ":" + str(port) + " is not reset. Is there another root running?\nThe pipeline-cluster only supports one root at a time.")
+
+    def add_nodes(self, node_addrs):
+        for host, port in node_addrs:
+            self.add_node(host, port)
 
 
     def setup(self, name, version, tasks):
@@ -98,7 +140,7 @@ class Root:
             cli.send_command_wait_asleep()
 
 
-    def feed(self, *items):
+    def feed(self, items):
         with self.scheduler_state_cond:
             for item in items:
                 self.input_queue.put(item)

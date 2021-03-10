@@ -36,18 +36,29 @@ def node_routine(addr):
 
 if __name__ == "__main__":
     mpl.serve(log_server_addr, log_file, conn_buffer_size=4, detach=True)
+    mpl.configure(log_server_addr)
 
     node_addrs = [("localhost", 5600), ("localhost", 5601)]
     nodes = [mp.Process(target=node_routine, args=(addr, )) for addr in node_addrs]
     for n in nodes:
         n.start()
 
-    root = root.Root(*node_addrs)
-    root.setup("example_pipeline", 1.0, taskchain)
-    root.boot(lambda item: print("output: " + item))
-    root.feed("hello world!", "its me an input item!")
-    root.wait_empty()
-    root.reset()
+    r = root.Root(node_addrs)
+    r.setup("example_pipeline", 1.0, taskchain)
+    r.boot(lambda item: print("output: " + item))
+    r.feed(["hello world!", "its me an input item!"])
+    r.wait_empty()
+    r.reset()
+
+    r = root.Root()
+    r.search_nodes(network="127.0.0.0/24", port=5600, verbose=True)
+    r.add_node("localhost", 5601)
+    r.setup("example_pipeline", 1.1, taskchain)
+    r.boot()
+    r.feed(["hello world", "second hello world"])
+    r.wait_empty()
+    r.reset()
+
 
     for node in nodes:
         node.terminate()
