@@ -17,9 +17,13 @@ def connect_timeout(addr, retry=False, retry_timeout=10, retry_sleep=1):
                 return mpc.Client(addr, "AF_INET", None)
             except Exception as e:
                 if retry_timeout - time_delta <= retry_sleep:
-                    raise TimeoutError()
+                    raise TimeoutError("could not connect to " + addr[0] + ":" + str(addr[1]))
                 else:
                     time.sleep(retry_sleep)
+
+def chunks(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 
 class SharedCounter:

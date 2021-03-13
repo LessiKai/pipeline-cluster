@@ -81,8 +81,12 @@ class Server:
                 try:
                     self.pipeline.add_task(task["function"], args=set() if task.get("args", None) is None else task["args"], is_generator=task["is_generator"])
                 except Exception as e:
-                    print(str(e))
-                    pass # TODO: currently an assertion thus no exception, maybe change? (pipeline add_task)
+                    self.pipeline = None
+                    return {
+                        "node": req["node"],
+                        "command": Command.ERROR,
+                        "describtion": "exception occurred while adding tasks"
+                    } # TODO: currently an assertion thus no exception, maybe change? (pipeline add_task)
 
             mpl.log("(SETUP) configured taskchain: " + str(self.pipeline), self.log_addr)
             return {
@@ -104,6 +108,7 @@ class Server:
                 "command": command,
                 "name": self.pipeline.get_name(),
                 "version": self.pipeline.get_version(),
+                "n_cores": mp.cpu_count(),
                 "awake": self.pipeline.is_awake(),
                 "running": self.pipeline.is_running(),
                 "n_worker": self.pipeline.get_n_worker(),
@@ -246,8 +251,8 @@ class Client:
             raise Exception(resp["describtion"])
 
 
-    def send_command_status(self, timeout=1, retry_sleep=0.1):
-        conn = util.connect_timeout(self.addr, retry=True, retry_timeout=timeout, retry_sleep=retry_sleep)
+    def send_command_status(self, retry=True, timeout=1, retry_sleep=0.1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
