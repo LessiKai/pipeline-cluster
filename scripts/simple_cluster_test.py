@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     r = root.Root()
     r.search_nodes(network="127.0.0.0/24", port=5600, verbose=True)
-    r.add_node("localhost", 5601)
+    r.add_node(("localhost", 5601))
     r.setup("example_pipeline", 1.1, taskchain)
     r.boot()
     r.feed(["hello world", "second hello world"])

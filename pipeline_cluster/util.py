@@ -25,6 +25,8 @@ def chunks(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
+def str_addr(addr):
+    return addr[0] + ":" + str(addr[1])
 
 class SharedCounter:
     def __init__(self, init=0):

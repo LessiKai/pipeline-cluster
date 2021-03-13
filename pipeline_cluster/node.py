@@ -229,8 +229,8 @@ class Server:
 
 
 class Client:
-    def __init__(self, host, port):
-        self.addr = (host, port)
+    def __init__(self, addr):
+        self.addr = addr
 
 
     def send_command_setup(self, name, version, tasks):

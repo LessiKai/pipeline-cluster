@@ -51,8 +51,8 @@ class Root:
 
     @staticmethod
     def _check_nodes(node_addrs, output_queue, verbose=False):
-        for host, port in node_addrs:
-            node_client = node.Client(host, port)
+        for addr in node_addrs:
+            node_client = node.Client(addr)
             try:
                 node_status = node_client.send_command_status(retry=False)
             except:
@@ -60,26 +60,26 @@ class Root:
             
             if not node_status or not node_status["running"]:
                 if verbose:
-                    mpl.log("node found at " + host + ":" + str(port))
+                    mpl.log("node found at " + pipeline_cluster.util.str_addr(addr))
                 output_queue.put(node_client)
             else:
-                raise RuntimeError("node at " + host + ":" + str(port) + " is not reset. Is there another root running?\nThe pipeline-cluster only supports one root at a time.")
+                raise RuntimeError("node at " + pipeline_cluster.util.str_addr(addr) + " is not reset. Is there another root running?\nThe pipeline-cluster only supports one root at a time.")
 
-    def add_node(self, host, port):
+    def add_node(self, addr):
         with self.scheduler_state_cond:
             if not self.is_reset:
                 raise RuntimeError("The pipeline-cluster has to be reset to be able to add more nodes")
 
-        node_client = node.Client(host, port)
+        node_client = node.Client(addr)
         node_status = node_client.send_command_status(timeout=5, retry_sleep=1)
         if not node_status or not node_status["running"]:
             self.node_clients.append(node_client)
         else:
-            raise RuntimeError("The node at " + str(host) + ":" + str(port) + " is not reset. Is there another root running?\nThe pipeline-cluster only supports one root at a time.")
+            raise RuntimeError("The node at " + pipeline_cluster.util.str_addr(addr) + " is not reset. Is there another root running?\nThe pipeline-cluster only supports one root at a time.")
 
     def add_nodes(self, node_addrs):
-        for host, port in node_addrs:
-            self.add_node(host, port)
+        for addr in node_addrs:
+            self.add_node(addr)
 
 
     def setup(self, name, version, tasks):
