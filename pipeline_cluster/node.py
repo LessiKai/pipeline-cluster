@@ -5,12 +5,14 @@ from pipeline_cluster import util
 from pipeline_cluster import pipeline
 import pipeline_cluster.multiprocess_logging as mpl
 import signal
+import traceback
+import time
 
 class Command:
     ERROR = "ERROR"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
     SETUP = "SETUP"
     STATUS = "STATUS"
-    BOOT = "BOOT"
     RESET = "RESET"
     WAKEUP = "WAKEUP"
     SLEEP = "SLEEP"
@@ -33,7 +35,7 @@ class Server:
         self.pipeline = None
 
     def _signal_handler(self, signum, frame):
-        if self.pipeline is not None and self.pipeline.is_running():
+        if self.pipeline is not None:
             self.pipeline.reset()
         exit(0)
 
@@ -50,7 +52,25 @@ class Server:
         while True:
             try:
                 req = conn.recv()
-                response = self._handle_request(conn, req)
+                try:
+                    response = self._handle_request(conn, req)
+                except Exception as e:
+                    mpl.log("exception occured during request " + str(req) + "\n" + traceback.format_exc(), addr=self.log_addr)
+                    if self.pipeline is not None:
+                        mpl.log("reset pipeline")
+                        try:
+                            self.pipeline.reset()
+                            self.pipeline = None
+                        except Exception as e:
+                            mpl.log("failed to reset pipeline, maybe you have to kill the workers manually")
+
+                    conn.send({
+                        "command": Command.INTERNAL_ERROR,
+                        "describtion": "internal error occured"
+                    })
+
+                    exit(1)
+
                 conn.send(response)
             except EOFError as e: # maybe this should catch all exceptions in case the client disconnects while sending
                 break
@@ -63,167 +83,239 @@ class Server:
                 "command": Command.ERROR,
                 "describtion": "request has to be of type dict"
             }
-            mpl.log("unknown request, request has to be of type dict", self.log_addr)
+
+        if req.get("node", None) is None:
+            return {
+                "command": Command.ERROR,
+                "describtion": "node field is missing"
+            }
+
+        if req.get("command", None) is None:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "command field is missing"
+            }
 
         command = req["command"]
         
         if command == Command.SETUP:
-
-            if self.pipeline is not None and not self.pipeline.is_reset():
-                mpl.log("(SETUP) previous pipeline is still running", self.log_addr)
-                return {
-                    "node": req["node"],
-                    "command": Command.ERROR,
-                    "describtion": "previous pipeline is still running"
-                }
-            self.pipeline = pipeline.Pipeline(self.log_addr, name=req["name"], version=req["version"], benchmark_folder=self.benchmark_folder) # TODO:add a lock or just dont call it while another process is requesting 
-            for task in req["tasks"]:
-                try:
-                    self.pipeline.add_task(task["function"], args=set() if task.get("args", None) is None else task["args"], is_generator=task["is_generator"])
-                except Exception as e:
-                    self.pipeline = None
-                    return {
-                        "node": req["node"],
-                        "command": Command.ERROR,
-                        "describtion": "exception occurred while adding tasks"
-                    } # TODO: currently an assertion thus no exception, maybe change? (pipeline add_task)
-
-            mpl.log("(SETUP) configured taskchain: " + str(self.pipeline), self.log_addr)
-            return {
-                "node": req["node"],
-                "command": command
-            }
+            return self._handle_command_setup(req)
 
         elif command == Command.STATUS:
-            mpl.log("(STATUS)", self.log_addr)
-
-            if self.pipeline is None:
-                return {
-                    "node": req["node"],
-                    "command": command
-                }
-
-            return {
-                "node": req["node"],
-                "command": command,
-                "name": self.pipeline.get_name(),
-                "version": self.pipeline.get_version(),
-                "n_cores": mp.cpu_count(),
-                "awake": self.pipeline.is_awake(),
-                "running": self.pipeline.is_running(),
-                "n_worker": self.pipeline.get_n_worker(),
-                "n_idle": self.pipeline.get_n_idle()
-            }
-
-        elif command == Command.BOOT:
-            n_worker = req["n_worker"] if req["n_worker"] is not None else mp.cpu_count()
-            try:
-                self.pipeline.boot(n_worker=n_worker)
-            except Exception as e:
-                mpl.log("(BOOT) failed booting workers: " + str(e), self.log_addr)
-                return {
-                    "node": req["node"],
-                    "command": Command.ERROR,
-                    "describtion": str(e)
-                }
-            mpl.log("(BOOT) " + str(n_worker) + " workers bootet", self.log_addr)
-            return {
-                "node": req["node"],
-                "command": command
-            }
+            return self._handle_command_status(req)
 
         elif command == Command.RESET:
-            try:
-                self.pipeline.reset()
-            except Exception as e:
-                mpl.log("(RESET) reset failed", self.log_addr)
-                return {
-                    "node": req["node"],
-                    "command": Command.ERROR,
-                    "describtion": str(e)
-                }
-            mpl.log("(RESET) workers terminated", self.log_addr)
-            return {
-                "node": req["node"],
-                "command": command
-            }
+            return self._handle_command_reset(req)
 
         elif command == Command.FEED:
-            try:
-                self.pipeline.feed(*req["items"])
-            except Exception as e:
-                return {
-                    "node": req["node"],
-                    "command": Command.ERROR,
-                    "descibtion": str(e)
-                }
-            return {
-                "node": req["node"],
-                "command": command
-            }
+            return self._handle_command_feed(req)
 
         elif command == Command.STREAM_OUTPUT:
-            while self.pipeline.wait_output(abort_on_sleep=False):
-                output = self.pipeline.get_output()
-                if output:
-                    conn.send({
-                        "node": req["node"],
-                        "command": command,
-                        "output": output
-                    })
-
-            return {
-                "node": req["node"],
-                "command": Command.STREAM_END
-            }
+            return self._handle_command_stream_output(req, conn)
 
         elif command == Command.SLEEP:
-            self.pipeline.sleep()
-            mpl.log("(SLEEP)", self.log_addr)
-            return {
-                "node": req["node"],
-                "command": command
-            }
+            return self._handle_command_sleep(req)
 
         elif command == Command.WAKEUP:
-            self.pipeline.wakeup()
-            mpl.log("(WAKEUP)", self.log_addr)
-            return {
-                "node": req["node"],
-                "command": command
-            }
+            return self._handle_command_wakeup(req)
         
         elif command == Command.WAIT_IDLE:
-            ret = self.pipeline.wait_idle(abort_on_sleep=False)
-            return {
-                "node": req["node"],
-                "command": command,
-                "reset": not ret,
-                "n_idle": self.pipeline.get_n_idle()
-            }
+            return self._handle_command_wait_idle(req)
 
         elif command == Command.WAIT_EMPTY:
-            ret = self.pipeline.wait_empty()
-            return {
-                "node": req["node"],
-                "command": command,
-                "sleep": not ret
-            }
+            return self._handle_command_wait_empty(req)
 
         elif command == Command.WAIT_ASLEEP:
-            self.pipeline.wait_asleep()
-            return {
-                "node": req["node"],
-                "command": command
-            }
+            return self._handle_command_wait_asleep(req)
 
         else:
-            mpl.log("unknown command in request")
             return {
                 "node": req["node"],
                 "command": Command.ERROR,
-                "describtion": "command not known"
+                "describtion": "unknown command"
             }
+
+
+
+
+
+    def _handle_command_setup(self, req):
+        if self.pipeline is not None and not self.pipeline.is_reset():
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "previous pipeline is still running"
+            }
+
+        taskchain = [(t["function"], t.get("args", set()), t["is_generator"]) for t in req["tasks"]]
+        try:
+            self.pipeline = pipeline.Pipeline(self.log_addr, name=req["name"], version=req["version"], taskchain=taskchain, benchmark_folder=self.benchmark_folder)
+        except AssertionError as e:
+            self.pipeline = None
+            return {
+                "node": req["node"],
+                "command": Command.ERROR, 
+                "describtion": traceback.format_exc()
+            }
+
+        n_workers = req["n_workers"]
+        self.pipeline.boot(n_workers=n_workers if n_workers is not None else mp.cpu_count())
+        
+        return {
+            "node": req["node"],
+            "command": Command.SETUP
+        }
+
+
+    def _handle_command_status(self, req):
+        if self.pipeline is None:
+            return {
+                "node": req["node"],
+                "command": Command.STATUS,
+                "running": False
+            }
+
+        assert self.pipeline.is_running(), "The pipeline should run at this point because calling setup is also booting immediatly"
+
+        return {
+            "node": req["node"],
+            "command": Command.STATUS,
+            "name": self.pipeline.get_name(),
+            "version": self.pipeline.get_version(),
+            "n_cores": mp.cpu_count(),
+            "awake": self.pipeline.is_awake(),
+            "running": True,
+            "n_worker": self.pipeline.get_n_worker(),
+            "n_idle": self.pipeline.get_n_idle()
+        }
+
+    def _handle_command_reset(self, req):
+        if self.pipeline is not None:
+            self.pipeline.reset()
+            self.pipeline = None
+
+        return {
+            "node": req["node"],
+            "command": Command.RESET
+        }
+
+    def _handle_command_feed(self, req):
+        if self.pipeline is None or self.pipeline.is_reset():
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "The pipeline can only be feed when its running"
+            }
+
+        try:
+            self.pipeline.feed(req["items"])
+        except AssertionError as e:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": traceback.format_exc()
+            }
+
+        return {
+            "node": req["node"],
+            "command": Command.FEED
+        }
+
+    def _handle_command_stream_output(self, req, conn):
+        if self.pipeline is None:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "The pipeline is currently not running"
+            }
+
+        while self.pipeline.wait_output(abort_on_sleep=False):
+            output = self.pipeline.get_output()
+            if output:
+                conn.send({
+                    "node": req["node"],
+                    "command": Command.STREAM_OUTPUT,
+                    "output": output
+                })
+
+        return {
+            "node": req["node"],
+            "command": Command.STREAM_END
+        }
+
+    def _handle_command_sleep(self, req):
+        if self.pipeline is None:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "The pipeline is currently not running"
+            }
+
+        self.pipeline.sleep()
+        return {
+            "node": req["node"],
+            "command": Command.SLEEP
+        }
+    
+    def _handle_command_wakeup(self, req):
+        if self.pipeline is None:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "The pipeline is currently not running"
+            }
+
+        self.pipeline.wakeup()
+        return {
+            "node": req["node"],
+            "command": Command.WAKEUP
+        }
+
+    def _handle_command_wait_idle(self, req):
+        if self.pipeline is None:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "The pipeline is currently not running"
+            }
+
+        ret = self.pipeline.wait_idle(abort_on_sleep=False)
+        return {
+            "node": req["node"],
+            "command": Command.WAIT_IDLE,
+            "reset": not ret,
+            "n_idle": self.pipeline.get_n_idle()
+        }
+
+    def _handle_command_wait_empty(self, req):
+        if self.pipeline is None:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "The pipeline is currently not running"
+            }
+
+        ret = self.pipeline.wait_empty()
+        return {
+            "node": req["node"],
+            "command": Command.WAIT_EMPTY,
+            "sleep": not ret
+        }
+
+    def _handle_command_wait_alseep(self, req):
+        if self.pipeline is None:
+            return {
+                "node": req["node"],
+                "command": Command.ERROR,
+                "describtion": "The pipeline is currently not running"
+            }
+
+        self.pipeline.wait_asleep()
+        return {
+            "node": req["node"],
+            "command": Command.WAIT_ALSEEP
+        }
 
 
 
@@ -233,8 +325,8 @@ class Client:
         self.addr = addr
 
 
-    def send_command_setup(self, name, version, tasks):
-        conn = util.connect_timeout(self.addr, retry=True)
+    def send_command_setup(self, name, version, tasks, n_workers=None, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=True, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -243,15 +335,15 @@ class Client:
             "command": Command.SETUP,
             "name": name,
             "version": version,
-            "tasks": tasks
+            "tasks": tasks,
+            "n_workers": n_workers
         })
         resp = conn.recv()
         conn.close()
-        if resp["command"] == Command.ERROR:
-            raise Exception(resp["describtion"])
+        self._raise_if_error(resp)
+        
 
-
-    def send_command_status(self, retry=True, timeout=1, retry_sleep=0.1):
+    def send_command_status(self, retry=True, timeout=5, retry_sleep=1):
         conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
@@ -262,32 +354,15 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
+        self._raise_if_error(resp)
+
         resp.pop("command", None)
         resp.pop("node", None)
         return resp
-    
-    def send_command_boot(self, n_worker=None):
-        """
-        n_worker = some int
-        n_worker = None -> mp.cpu_count()
-        """
-        conn = util.connect_timeout(self.addr, retry=True)
-        conn.send({
-            "node": {
-                "ip": self.addr[0],
-                "port": self.addr[1]
-            },
-            "command": Command.BOOT,
-            "n_worker": n_worker
-        })
-        resp = conn.recv()
-        conn.close()
-        if resp["command"] == Command.ERROR:
-            raise Exception(resp["describtion"])
 
     
-    def send_command_reset(self):
-        conn = util.connect_timeout(self.addr, retry=True)
+    def send_command_reset(self, retry=True, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -297,11 +372,11 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
-        if resp["command"] == Command.ERROR:
-            raise Exception(resp["describtion"])
+        self._raise_if_error(resp)
 
-    def send_command_sleep(self):
-        conn = util.connect_timeout(self.addr, retry=True)
+
+    def send_command_sleep(self, retry=True, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -311,9 +386,11 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
+        self._raise_if_error(resp)
 
-    def send_command_wakeup(self):
-        conn = util.connect_timeout(self.addr, retry=True)
+
+    def send_command_wakeup(self, retry=True, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -323,10 +400,11 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
+        self._raise_if_error(resp)
 
 
-    def send_command_feed(self, *items):
-        conn = util.connect_timeout(self.addr, retry=True)
+    def send_command_feed(self, items, retry=True, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -337,13 +415,11 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
-
-        if resp["command"] == Command.ERROR:
-            raise Exception(resp["describtion"])
+        self._raise_if_error(resp)
 
 
-    def _stream_routine(self, output_handler):
-        conn = util.connect_timeout(self.addr, retry=True)
+    def _stream_routine(self, output_handler, retry, timeout, retry_sleep):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -354,31 +430,35 @@ class Client:
 
         while True:
             try:
-                response = conn.recv()
+                resp = conn.recv()
             except EOFError:
                 break
 
-            if response["command"] == Command.STREAM_END:
+            self._raise_if_error(resp)
+
+            if resp["command"] == Command.STREAM_END:
                 break
 
-            if response["output"]:
-                threading.Thread(target=self._output_routine, args=(response["output"], output_handler)).start()
-        
-        conn.close()
+            if resp["output"]:
+                threading.Thread(target=self._output_routine, args=(resp["output"], output_handler)).start()
+
+        conn.close()  
+
 
     def _output_routine(self, items, output_handler):
         for item in items:
             output_handler(item)
         
 
-    def send_command_stream_output(self, output_handler, detach=True):
+    def send_command_stream_output(self, output_handler, detach=True, retry=True, timeout=5, retry_sleep=1):
         if detach:
-            threading.Thread(target=self._stream_routine, args=(output_handler, ), daemon=True).start()
+            threading.Thread(target=self._stream_routine, args=(output_handler, retry, timeout, retry_sleep), daemon=True).start()
         else:
-            self._stream_routine(output_handler)
+            self._stream_routine(output_handler, retry, timeout, retry_sleep)
 
-    def send_command_wait_idle(self):
-        conn = util.connect_timeout(self.addr, retry=True)
+
+    def send_command_wait_idle(self, retry=True, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -388,10 +468,11 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
+        self._raise_if_error(resp)
         return (resp["reset"], resp["n_idle"])
 
-    def send_command_wait_empty(self):
-        conn = util.connect_timeout(self.addr, retry=True)
+    def send_command_wait_empty(self, retry=True, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -401,10 +482,11 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
+        self._raise_if_error(resp)
         return resp["sleep"]
 
-    def send_command_wait_asleep(self):
-        conn = util.connect_timeout(self.addr, retry=True)
+    def send_command_wait_asleep(self, retry=True, timeout=5, retry_sleep=1):
+        conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)
         conn.send({
             "node": {
                 "ip": self.addr[0],
@@ -414,4 +496,12 @@ class Client:
         })
         resp = conn.recv()
         conn.close()
+        self._raise_if_error(resp)
 
+
+    def _raise_if_error(self, resp):
+        if resp["command"] == Command.ERROR:
+            raise RuntimeError(resp["describtion"])
+
+        if resp["command"] == Command.INTERNAL_ERROR:
+            raise ConnectionResetError(resp["describtion"])

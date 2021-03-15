@@ -58,7 +58,7 @@ class Root:
             except:
                 continue
             
-            if not node_status or not node_status["running"]:
+            if not node_status["running"]:
                 if verbose:
                     mpl.log("node found at " + pipeline_cluster.util.str_addr(addr))
                 output_queue.put(node_client)
@@ -82,29 +82,25 @@ class Root:
             self.add_node(addr)
 
 
-    def setup(self, name, version, tasks):
+    def setup(self, name, version, tasks, output_handler=lambda item: None):
+        with self.scheduler_state_cond:
+            if not self.is_reset:
+                raise RuntimeError("cluster is still running")
+
+            self.is_reset = False
+
         for cli in self.node_clients:
-            cli.send_command_setup(name, version, tasks)
-            
-    
+            cli.send_command_setup(name, version, tasks, n_workers=None)
+            cli.send_command_stream_output(output_handler, detach=True)
+            threading.Thread(target=self._client_scheduler_routine, args=(cli,), daemon=True).start()
+
+
 
     def status(self):
         status = []
         for cli in self.node_clients:
             status.append(cli.send_command_status())
         return status
-
-    def boot(self, output_handler=lambda item: None):
-        with self.scheduler_state_cond:
-            self.is_reset = False
-
-        for cli in self.node_clients:
-            try:
-                cli.send_command_boot(n_worker=None) # boot pipeline with #worker = #cores
-                cli.send_command_stream_output(output_handler, detach=True)
-                threading.Thread(target=self._client_scheduler_routine, args=(cli,), daemon=True).start()
-            except Exception as e:
-                raise e
 
 
     def _client_scheduler_routine(self, cli):
@@ -133,17 +129,15 @@ class Root:
                 self.queue_count -= len(new_items)
                 self.scheduler_state_cond.notify_all()
 
-                cli.send_command_feed(*new_items)
+                print("feed items " + str(new_items))
+                cli.send_command_feed(new_items)
 
 
     def reset(self):
-        for cli in self.node_clients:
-            try:
-                cli.send_command_reset()
-            except Exception as e:
-                raise e
-        
         with self.scheduler_state_cond:
+            for cli in self.node_clients:
+                cli.send_command_reset()
+            
             self.is_reset = True
             self.scheduler_state_cond.notify_all()
 
@@ -182,8 +176,8 @@ class Root:
             while self.queue_count > 0 and not self.is_reset:
                 self.scheduler_state_cond.wait()
 
-        if self.is_reset:
-            return False
+            if self.is_reset:
+                return False
 
         for cli in self.node_clients:
             cli.send_command_wait_empty()

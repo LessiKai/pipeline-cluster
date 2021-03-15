@@ -169,7 +169,7 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
 
 
 class Pipeline:
-    def __init__(self, log_addr, version=1.0, name="pipeline", benchmark_folder="/tmp/pipeline-cluster-benchmarks"):
+    def __init__(self, log_addr, version=1.0, name="pipeline", taskchain=[], benchmark_folder="/tmp/pipeline-cluster-benchmarks"):
         self.version = version
         self.name = name
         self.log_addr = log_addr
@@ -186,7 +186,10 @@ class Pipeline:
         if not os.path.isdir(self.benchmark_folder):
             os.mkdir(self.benchmark_folder)
 
-    def add_task(self, task, args=set(), is_generator=False):
+        for task in taskchain:
+            self._add_task(task[0], args=task[1], is_generator=task[2])
+
+    def _add_task(self, task, args=set(), is_generator=False):
         """
         Adds a task into the current pipeline taskchain.
         A task is a function with one input parameter and one pickable ouput item.
@@ -196,12 +199,12 @@ class Pipeline:
                                         succeeding buffer for each generator function, 
                                         taskchain output buffer
         """
-        assert inspect.isfunction(task) or inspect.isclass(task)
+        assert inspect.isfunction(task) or inspect.isclass(task), "The added task has to be of function or class type"
         n_params = len(inspect.signature(task).parameters) if inspect.isfunction(task) else len(inspect.signature(task.__call__).parameters)
         if inspect.isfunction(task):
-            assert n_params == 1
+            assert n_params == 1, "Tasks of type function should have exactly one input parameter for the input item"
         else:
-            assert n_params == 2
+            assert n_params == 2, "Tasks of class type should have exactly two parameters, one of them the class reference and one for the input item"
 
         input_buffer = None
         if self.taskchain:
@@ -244,7 +247,7 @@ class Pipeline:
         """
         return len(self.worker)
 
-    def boot(self, n_worker=mp.cpu_count()):
+    def boot(self, n_workers=mp.cpu_count()):
         """
         Starts the pipeline workers.
         Should only be called at the start or after a reset.
@@ -259,7 +262,7 @@ class Pipeline:
         curr_benchmark_folder = os.path.join(self.benchmark_folder, str(benchmark_id))
         os.mkdir(curr_benchmark_folder)
 
-        self.worker = [mp.Process(target=_worker_routine, args=(self.taskchain, self.log_addr, self.new_items_counter, self.idle_counter, self.sleep_counter, self.terminate_counter, self.state_cond, curr_benchmark_folder), daemon=True) for _ in range(n_worker)]
+        self.worker = [mp.Process(target=_worker_routine, args=(self.taskchain, self.log_addr, self.new_items_counter, self.idle_counter, self.sleep_counter, self.terminate_counter, self.state_cond, curr_benchmark_folder), daemon=True) for _ in range(n_workers)]
         for w in self.worker:
             w.start()
 
@@ -294,10 +297,12 @@ class Pipeline:
         self.taskchain = []
 
 
-    def feed(self, *items):
+    def feed(self, items):
         """
         Feed input items into the input buffer.
         """
+        assert self.is_running(), "The pipeline can only be fed when its running"
+
         self.taskchain[0].input_buffer.enqueue(*items)
         with self.state_cond:
             self.new_items_counter.inc(len(items))
