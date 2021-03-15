@@ -35,7 +35,7 @@ def node_routine(addr):
     node.Server(addr, log_server_addr, conn_buffer_size=2).serve()
 
 if __name__ == "__main__":
-    mpl.serve(log_server_addr, log_file, conn_buffer_size=4, detach=True)
+    mpl.serve(log_server_addr, log_file, conn_buffer_size=2, detach=True)
     mpl.configure(log_server_addr)
 
     node_addrs = [("localhost", 5600), ("localhost", 5601)]

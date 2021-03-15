@@ -53,20 +53,13 @@ def configure(log_addr):
     global server_address
     server_address = log_addr
 
-def log(msg, addr=None):
-    addr = addr if addr is not None else server_address
-    while True:
-        conn = util.connect_timeout(addr, retry=True)
-        try:
-            conn.send({
-                "pid": os.getpid(),
-                "message": msg
-            })
-            conn.close()
-            break
-        except Exception:
-            # possible infinit loop here if there is no log server
-            # TODO: implement timeout or retry cap
-            continue     
+def log(msg, addr=None, timeout=5, retry_sleep=1):
     print(msg)
+    addr = addr if addr is not None else server_address
+    conn = util.connect_timeout(addr, retry=True, retry_timeout=timeout, retry_sleep=retry_sleep)
+    conn.send({
+        "pid": os.getpid(),
+        "message": msg
+    })
+    conn.close()
 
