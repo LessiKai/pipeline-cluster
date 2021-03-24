@@ -30,6 +30,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if not args.command:
+        parser.print_help()
+        exit(1)
+
     if args.command == "log":
         if os.path.isfile(args.outfile):
             if not input(args.outfile + " already exists. Proceed? (y/n) ").strip() in ["y", "Y", "j", "J"]:

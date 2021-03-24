@@ -13,5 +13,6 @@ setup(
     license = "MIT",
     keywords = "pipeline cluster parallel concurrent computing",
     packages = ["pipeline_cluster"],
+    scripts=["scripts/pcluster"],
     install_requires = []
 )
