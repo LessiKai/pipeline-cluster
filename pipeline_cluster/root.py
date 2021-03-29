@@ -5,6 +5,7 @@ import ipaddress
 import pipeline_cluster.multiprocess_logging as mpl
 import pipeline_cluster.util
 import multiprocessing as mp
+from pipeline_cluster import util
 
 
 
@@ -94,6 +95,10 @@ class Root:
             cli.send_command_stream_output(output_handler, detach=True)
             threading.Thread(target=self._client_scheduler_routine, args=(cli,), daemon=True).start()
 
+    def environment(self, local_packages=[], remote_packages=[]):
+        local_packages = [util.dir_to_dict(p) for p in local_packages]
+        for cli in self.node_clients:
+            cli.send_command_environment(local_packages, remote_packages)
 
 
     def status(self):
@@ -129,7 +134,6 @@ class Root:
                 self.queue_count -= len(new_items)
                 self.scheduler_state_cond.notify_all()
 
-                print("feed items " + str(new_items))
                 cli.send_command_feed(new_items)
 
 

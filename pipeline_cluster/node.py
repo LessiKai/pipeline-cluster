@@ -7,11 +7,16 @@ import pipeline_cluster.multiprocess_logging as mpl
 import signal
 import traceback
 import time
+import os
+import subprocess
+import importlib
+import sys
 
 class Command:
     ERROR = "ERROR"
     INTERNAL_ERROR = "INTERNAL_ERROR"
     SETUP = "SETUP"
+    ENVIRONMENT = "ENVIRONMENT"
     STATUS = "STATUS"
     RESET = "RESET"
     WAKEUP = "WAKEUP"
@@ -33,6 +38,7 @@ class Server:
         self.log_addr = log_addr
         self.benchmark_folder = benchmark_folder
         self.pipeline = None
+        self.start_time = None
 
     def _signal_handler(self, signum, frame):
         if self.pipeline is not None:
@@ -42,6 +48,7 @@ class Server:
     def serve(self):
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+        self.start_time = time.time()
         mpl.log("node server started at " + self.addr[0] + ":" + str(self.addr[1]), self.log_addr)
         with mpc.Listener(self.addr, "AF_INET", self.conn_buffer_size, None) as lst:
             while True:
@@ -62,7 +69,7 @@ class Server:
                             self.pipeline.reset()
                             self.pipeline = None
                         except Exception as e:
-                            mpl.log("failed to reset pipeline, maybe you have to kill the workers manually")
+                            mpl.log("failed to reset pipeline, maybe you have to kill the workers manually", addr=self.log_addr)
 
                     conn.send({
                         "command": Command.INTERNAL_ERROR,
@@ -101,6 +108,9 @@ class Server:
         
         if command == Command.SETUP:
             return self._handle_command_setup(req)
+
+        elif command == Command.ENVIRONMENT:
+            return self._handle_command_environment(req, conn)
 
         elif command == Command.STATUS:
             return self._handle_command_status(req)
@@ -167,12 +177,40 @@ class Server:
             "command": Command.SETUP
         }
 
+    def _handle_command_environment(self, req, conn):
+        WORKING_DIR = os.path.expanduser("~/.pipeline-cluster")
+
+        if not os.path.isdir(WORKING_DIR):
+            os.makedirs(WORKING_DIR)
+
+        for package in req["local"]:
+            util.dict_to_dir(WORKING_DIR, package)
+            package_path = os.path.join(WORKING_DIR, list(package)[0])
+            package_name = os.path.basename(package_path)
+            mpl.log("install local package: " + package_name, addr=self.log_addr)
+            subprocess.call(["pip", "install", package_path], shell=False)
+
+        for package_name in req["remote"]:
+            subprocess.call(["pip", "install", package_name], shell=False)
+            mpl.log("install remote package: " + package_name, addr=self.log_addr)
+
+
+        mpl.log("finished installing packages, restart server")
+        conn.send({
+            "node": req["node"],
+            "command": Command.ENVIRONMENT
+        })
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
 
     def _handle_command_status(self, req):
+        assert self.start_time is not None
+
         if self.pipeline is None:
             return {
                 "node": req["node"],
                 "command": Command.STATUS,
+                "start_time": self.start_time,
                 "running": False
             }
 
@@ -186,6 +224,7 @@ class Server:
             "n_cores": mp.cpu_count(),
             "awake": self.pipeline.is_awake(),
             "running": True,
+            "start_time": self.start_time,
             "n_worker": self.pipeline.get_n_worker(),
             "n_idle": self.pipeline.get_n_idle()
         }
@@ -342,6 +381,39 @@ class Client:
         conn.close()
         self._raise_if_error(resp)
         
+    def send_command_environment(self, local_packages, remote_packages, timeout=5, retry_sleep=1, restart_timeout=5):
+        status = self.send_command_status(retry=True, timeout=timeout, retry_sleep=retry_sleep)
+        start_time = status["start_time"]
+
+        conn = util.connect_timeout(self.addr, retry=True, retry_timeout=timeout, retry_sleep=retry_sleep)
+        conn.send({
+            "node": {
+                "ip": self.addr[0],
+                "port": self.addr[1]
+            },
+            "command": Command.ENVIRONMENT,
+            "local": local_packages,
+            "remote": remote_packages
+        })
+        resp = conn.recv()
+        conn.close()
+        self._raise_if_error(resp)
+        
+        # wait for node to restart
+        wait_time = time.time()
+        while True:
+            if time.time() - wait_time > restart_timeout:
+                raise TimeoutError("Node server not running again after restart")
+            try:
+                new_status = self.send_command_status(retry=True, timeout=timeout, retry_sleep=retry_sleep)
+            except ConnectionResetError:
+                continue
+            
+            if new_status["start_time"] != start_time:
+                break
+            
+
+
 
     def send_command_status(self, retry=True, timeout=5, retry_sleep=1):
         conn = util.connect_timeout(self.addr, retry=retry, retry_timeout=timeout, retry_sleep=retry_sleep)

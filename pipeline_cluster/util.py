@@ -2,6 +2,7 @@ import multiprocessing as mp
 import multiprocessing.connection as mpc
 import time
 from ctypes import c_int64
+import os
 
 def connect_timeout(addr, retry=False, retry_timeout=10, retry_sleep=1):
     if not retry:
@@ -27,6 +28,41 @@ def chunks(lst, n):
 
 def str_addr(addr):
     return addr[0] + ":" + str(addr[1])
+
+
+def dict_to_dir(root, dir_dict):
+    if not os.path.isdir(root):
+        os.mkdir(root)
+
+    for key, value in dir_dict.items():
+        if isinstance(value, dict):
+            dict_to_dir(os.path.join(root, key), value)
+        
+        else:
+            with open(os.path.join(root, key), "wb") as fd:
+                fd.write(value)
+
+def dir_to_dict(root, ignore=[".venv", "__pycache__", ".git"]):
+    result = {}
+    result[os.path.basename(root)] = _dir_to_dict(root, ignore)
+    return result
+
+def _dir_to_dict(root, ignore):
+    result = {}
+    for entry in os.listdir(root):
+        if entry in ignore:
+            continue
+
+        full_path = os.path.join(root, entry)
+        if os.path.isdir(full_path):
+            result[entry] = _dir_to_dict(full_path, ignore)
+        
+        else:
+            with open(full_path, "rb") as fd:
+                result[entry] = fd.read()
+    
+    return result
+
 
 class SharedCounter:
     def __init__(self, init=0):
