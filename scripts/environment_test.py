@@ -16,8 +16,7 @@ if __name__ == "__main__":
 
     r = root.Root()
     r.search_nodes(verbose=True)
-    r.environment(local_packages=["../ghminer"], remote_packages=["requests"])
-    r.setup("example_pipeline", 1.0, taskchain)
+    r.setup("example_pipeline", 1.0, taskchain, local_packages=["../ghminer"], remote_packages=["requests"])
     r.feed(["https://api.myip.com"])
     r.wait_empty()
     r.reset()

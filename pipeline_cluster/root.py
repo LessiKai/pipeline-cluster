@@ -83,22 +83,18 @@ class Root:
             self.add_node(addr)
 
 
-    def setup(self, name, version, tasks, output_handler=lambda item: None):
+    def setup(self, name, version, tasks, local_packages=[], remote_packages=[], output_handler=lambda item: None):
         with self.scheduler_state_cond:
             if not self.is_reset:
                 raise RuntimeError("cluster is still running")
 
             self.is_reset = False
 
-        for cli in self.node_clients:
-            cli.send_command_setup(name, version, tasks, n_workers=None)
-            cli.send_command_stream_output(output_handler, detach=True)
-            threading.Thread(target=self._client_scheduler_routine, args=(cli,), daemon=True).start()
-
-    def environment(self, local_packages=[], remote_packages=[]):
         local_packages = [util.dir_to_dict(p) for p in local_packages]
         for cli in self.node_clients:
-            cli.send_command_environment(local_packages, remote_packages)
+            cli.send_command_setup(name, version, tasks, local_packages=local_packages, remote_packages=remote_packages, n_workers=None)
+            cli.send_command_stream_output(output_handler, detach=True)
+            threading.Thread(target=self._client_scheduler_routine, args=(cli,), daemon=True).start()
 
 
     def status(self):

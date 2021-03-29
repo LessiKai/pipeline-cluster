@@ -364,24 +364,9 @@ class Client:
         self.addr = addr
 
 
-    def send_command_setup(self, name, version, tasks, n_workers=None, timeout=5, retry_sleep=1):
-        conn = util.connect_timeout(self.addr, retry=True, retry_timeout=timeout, retry_sleep=retry_sleep)
-        conn.send({
-            "node": {
-                "ip": self.addr[0],
-                "port": self.addr[1]
-            },
-            "command": Command.SETUP,
-            "name": name,
-            "version": version,
-            "tasks": tasks,
-            "n_workers": n_workers
-        })
-        resp = conn.recv()
-        conn.close()
-        self._raise_if_error(resp)
+    def send_command_setup(self, name, version, tasks, n_workers=None, local_packages=[], remote_packages=[], timeout=5, retry_sleep=1, restart_timeout=5):
         
-    def send_command_environment(self, local_packages, remote_packages, timeout=5, retry_sleep=1, restart_timeout=5):
+        # environment setup
         status = self.send_command_status(retry=True, timeout=timeout, retry_sleep=retry_sleep)
         start_time = status["start_time"]
 
@@ -411,7 +396,23 @@ class Client:
             
             if new_status["start_time"] != start_time:
                 break
-            
+        
+        # pipeline setup
+        conn = util.connect_timeout(self.addr, retry=True, retry_timeout=timeout, retry_sleep=retry_sleep)
+        conn.send({
+            "node": {
+                "ip": self.addr[0],
+                "port": self.addr[1]
+            },
+            "command": Command.SETUP,
+            "name": name,
+            "version": version,
+            "tasks": tasks,
+            "n_workers": n_workers
+        })
+        resp = conn.recv()
+        conn.close()
+        self._raise_if_error(resp)
 
 
 
