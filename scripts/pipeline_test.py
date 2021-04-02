@@ -14,14 +14,17 @@ def dummy(item):
     mpl.log("dummy message")
     return item
 
+taskchain = [
+    (Dummy, ("some class message", ), False),
+    (dummy, set(), False)
+]
+
 if __name__ == "__main__":
     mpl.serve(("", 5555), "log.txt", detach=True)
-    pl = pipeline_cluster.pipeline.Pipeline(("", 5555))
-    pl.add_task(Dummy, args=("some class message",))
-    pl.add_task(dummy)
+    pl = pipeline_cluster.pipeline.Pipeline(("", 5555), taskchain=taskchain)
 
-    pl.boot(n_worker=1)
-    pl.feed("some", "some", "some")
+    pl.boot(n_workers=1)
+    pl.feed(["some", "some", "some"])
     pl.wait_empty()
     pl.reset()
     

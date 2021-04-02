@@ -31,6 +31,7 @@ class Root:
         if verbose:
             mpl.log("scanning network " + str(network) + " for nodes on port " + str(port) + " (" + str(network.num_addresses) + " hosts)")
         
+        n_nodes = len(self.node_clients)
         thrs = []
         node_client_queue = queue.Queue()
         for addrs_chunk in pipeline_cluster.util.chunks([(str(h), port) for h in network if (str(h), port) not in [n.addr for n in self.node_clients]], network.num_addresses // mp.cpu_count() + 1):
@@ -49,6 +50,8 @@ class Root:
 
         if verbose:
             mpl.log("finished scanning network")
+
+        return len(self.node_clients) - n_nodes
 
     @staticmethod
     def _check_nodes(node_addrs, output_queue, verbose=False):

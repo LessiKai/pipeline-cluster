@@ -81,6 +81,8 @@ class Server:
                 conn.send(response)
             except EOFError as e: # maybe this should catch all exceptions in case the client disconnects while sending
                 break
+            except ConnectionResetError as e:
+                break
         
         conn.close()
 
@@ -172,6 +174,7 @@ class Server:
         n_workers = req["n_workers"]
         self.pipeline.boot(n_workers=n_workers if n_workers is not None else mp.cpu_count())
         
+        mpl.log("pipeline setup: " + self.pipeline.get_name() + " v" + str(self.pipeline.get_version()))
         return {
             "node": req["node"],
             "command": Command.SETUP
@@ -233,6 +236,7 @@ class Server:
         if self.pipeline is not None:
             self.pipeline.reset()
             self.pipeline = None
+            mpl.log("pipeline reset", self.log_addr)
 
         return {
             "node": req["node"],
