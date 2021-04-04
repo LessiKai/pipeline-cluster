@@ -31,7 +31,7 @@ Because the cluster nodes are normally spread over multiple hosts, the pipeline-
 
 The easiest way to start a log server is to use the pcluster script. 
 ```
-pcluster --host localhost --port 5000 --outfile log.txt
+pcluster log --host localhost --port 5000 --outfile log.txt
 ``` 
 This will start a log server listening at `localhost` on port `5000`. The same server can be started using the python interface.  
 ```
@@ -51,34 +51,40 @@ mpl.configure(log_server_addr)
 mpl.log("hello world!")
 mpl.log("hello world!")
 ```
+It's also possible to set the log server address individually per log.
+```
+mpl.log("hello_world!", addr=log_server_addr)
+```
 
 
 ### node server
-The node servers are the actual heart of the cluster. Each host should only run one server at a time. A node server is responsible for recieving input data, processing it and returning output to the client.  
+The node servers are the actual heart of the cluster. Each host should only run one server at a time (each additional server on one host would just add more overhead overall and would not benefit performance except heavy IO in rare cases). A node server is responsible for recieving input data, processing it and returning output to the client.  
 
-The easiest way to start a node server is to use the pcluster script.  
+A node server should only be started via the pcluster script 
 ```
-pcluster --host localhost --port 6000 --log-host [...] --log-port [...]
+pcluster node --host localhost --port 6000 --log-host [...] --log-port [...]
 ``` 
-This will start a server listening at `localhost` on port `6000` and logs to the provided log server. The same server can be started using the python interface.
-```
-import pipeline_cluster.node
-
-log_server_addr = ("localhost", 6000)
-server_addr = ("localhost", 5000)
-
-pipeline_cluster.node.Server(server_addr, log_server_addr).serve()
-```
+This will start a server listening at `localhost` on port `6000` and logs to the provided log server. It is recommended to start a node in a virtual environment, because when configuring pipelines, missing packages are installed on the fly and could blur up the locally installed pip packages. 
 
 ### root node
-Each node can be controlled individually by a respective client. To make the process easier the root node handles all of them together. Thus the root node is the client for the whole cluster. It can only be created via the python interface.
+Each node can be controlled individually by a respective client. To make the process easier the root node handles all of them together. Thus the root node is the client for the whole cluster. A cluster should only have one root node running at a time. It can only be created via the python interface.
 ```
 import pipeline_cluster.root
 
 node_addrs = [("localhost", 6000), ("localhost", 6001)]
-cluster = pipeline_cluster.root.Root(*node_addrs)
+cluster = pipeline_cluster.root.Root(node_addrs)
 ```
-The next step is to configure the pipeline that should be executed. This is done by defining a taskchain. Each task is one step in the pipeline and has to have one input parameter for the input item. There are two types of tasks. Those which return one item and those that return multiple. If a task returns mutliple items it has to be marked as generator. It is also possible to create a callable class as shown below.
+A more simple and flexible way of configuring the cluster nodes for the root node is to just search them in a network.
+```
+import pipeline_cluster.root
+
+cluster = pipeline_cluster.root.Root()
+cluster.search_nodes(network="123.123.123.0/24", port=6000)
+cluster.search_nodes(network="123.123.123.0/24", port=6001)
+```
+Each call to `search_nodes` scans the provided network and adds all found notes on given port  to the already known ones.
+
+The next step is to configure the pipeline that should be executed. This is done by defining the taskchain. A taskchain is a list of functions or callable classes that are consecutively executed. To be able to copy those tasks onto the node machines, they have to be included in a package. In some module you can define those tasks like the following.
 ```
 import pipeline_cluster.multiprocess_logging as mpl
 def simple_task(item):
@@ -95,9 +101,12 @@ class DropItem:
         
     def __call__(self, item):
         mpl.log(self.drop_message)
-        return None # returning nothing means dropping the item
+        return None
+```
+As you can see it is possible to return one or more output items. To drop an item, just return nothing or None. The log address is preconfigured when a task is executed. Also a callable class as a task is created once per worker for the entire lifetime.  
 
-
+After defining the tasks, the taskchain schema has to be setup. Therefor a list of tasks is created, each object defining one task. Tasks that return multiple items are marked as generator. Callable classes have an extra args field to construct the class.
+```
 taskchain = [
     {
         "function": simple_task,
@@ -114,15 +123,11 @@ taskchain = [
     }
 ]
 ``` 
-As one can see the logging client is already preconfigured when the task is executed on a node. The cluster can then be configured using a name, version and the taskchain.  
+ The cluster can then be configured using a name, version and the taskchain, as well as the packages needed for the tasks to run. Additionally an output routine can be added, which is executed locally on the root host for each output item.  
 ```
-cluster.setup("example-pipeline", 1.0, taskchain)
+cluster.setup("example-pipeline", 1.0, taskchain, local_packages=["task_package"], output_handler=lambda output_item: print(output_item))
 ```
-The next thing to do is to boot the cluster. This starts the worker proceses of each node and the input scheduler of the root node. Also at this point an output routine can be defined which will be run locally on the root host for each output.
-```
-cluster.boot(output_handler=lambda output_item: print(output_item))
-```
-Its time to feed some input and wait until all items are processed.
+This starts the worker processes of each node and the input scheduler of the root node. Its time to feed some input and wait until all items are processed.
 ```
 cluster.feed("hello world!", "its me an input item!")
 cluster.wait_empty()
@@ -142,11 +147,9 @@ while more_data_available:
     cluster.feed(get_next_input())
 cluster.wait_empty()
 ```
-The script `simple_cluster_test.py` contains a single machine, two node cluster test. If it fails, check your firewall configuration or create an issue.  
 
-Please, you are welcome to message me if you have a question! :blush:  
+Please, you are welcome to message me if you have any questions! :blush:  
 
 
 ## bugs
 - on systems other than linux a warning is generated on shutdown, informing about leaked semaphores. This can be ignored. [bug report](https://bugs.python.org/issue38119)
-- creating a taskchain with functions in a not importable module can produce errors due to the multiprocessing lib (e.g. the python shell). This should be avoided and wont be fixed because it's the intended behaviour. [bug report](https://bugs.python.org/issue25053), [stackoverflow](https://stackoverflow.com/questions/41385708/multiprocessing-example-giving-attributeerror)
