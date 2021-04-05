@@ -49,7 +49,7 @@ def serve(addr, filename, conn_buffer_size=2, detach=False):
 
 server_address = ("", 5555)
 
-def configure(log_addr):
+def set_default_address(log_addr):
     global server_address
     server_address = log_addr
 

@@ -5,7 +5,7 @@ with open("README.md", "r") as fd:
 
 setup(
     name = "pipeline_cluster",
-    version = "1.0",
+    version = "1.1",
     author = "Kai Leßmeister",
     author_email = "lessmeister.kai@gmail.com",
     description = "A simple pipeline cluster implementation in python",
