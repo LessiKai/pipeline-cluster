@@ -54,16 +54,16 @@ This will start a server listening at `localhost` on port `6000` and logs to the
 ### root node
 Each node can be controlled individually by a respective client. To make the process easier the root node handles all of them together. Thus the root node is the client for the whole cluster. A cluster should only have one root node running at a time. It can only be created via the python interface.
 ```
-import pipeline_cluster.root
+import pipeline_cluster
 
 node_addrs = [("localhost", 6000), ("localhost", 6001)]
-cluster = pipeline_cluster.root.Root(node_addrs)
+cluster = pipeline_cluster.Root(node_addrs)
 ```
 A more simple and flexible way of configuring the cluster nodes for the root node is to just search them in a network.
 ```
-import pipeline_cluster.root
+import pipeline_cluster
 
-cluster = pipeline_cluster.root.Root()
+cluster = pipeline_cluster.Root()
 cluster.search_nodes(network="123.123.123.0/24", port=6000)
 cluster.search_nodes(network="123.123.123.0/24", port=6001)
 ```
@@ -71,13 +71,13 @@ Each call to `search_nodes` scans the provided network and adds all found notes 
 
 The next step is to configure the pipeline that should be executed. Therefore a taskchain has to be defined. A taskchain is a list of functions or callable classes that are consecutively executed. To be able to copy those tasks onto the node machines, they have to be included in a package.
 ```
-import pipeline_cluster.multiprocess_logging as mpl
+import pipeline_cluster
 def simple_task(item):
-    mpl.log(item)
+    pipeline_cluster.log(item)
     return item
 
 def generator_task(item):
-    mpl.log(item)
+    pipeline_cluster.log(item)
     return (item, item)
 
 class DropItem:
@@ -85,7 +85,7 @@ class DropItem:
         self.drop_message = drop_message
         
     def __call__(self, item):
-        mpl.log(self.drop_message)
+        pipeline_cluster.log(self.drop_message)
         return None
 ```
 As you can see it is possible to return one or more output items. To drop an item, just return nothing or None. The log address is preconfigured when a task is executed.  
