@@ -43,6 +43,7 @@ def dict_to_dir(root, dir_dict):
                 fd.write(value)
 
 def dir_to_dict(root, ignore=[".venv", "__pycache__", ".git"]):
+    root = os.path.abspath(root)
     result = {}
     result[os.path.basename(root)] = _dir_to_dict(root, ignore)
     return result

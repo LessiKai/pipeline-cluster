@@ -324,12 +324,20 @@ class Server:
             }
 
         ret = self.pipeline.wait_idle(abort_on_sleep=False)
-        return {
-            "node": req["node"],
-            "command": Command.WAIT_IDLE,
-            "reset": not ret,
-            "n_idle": self.pipeline.get_n_idle()
-        }
+        if ret or self.pipeline is not None:
+            return {
+                "node": req["node"],
+                "command": Command.WAIT_IDLE,
+                "reset": not ret,
+                "n_idle": self.pipeline.get_n_idle()
+            }
+        else:
+            return {
+                "node": req["node"],
+                "command": Command.WAIT_IDLE,
+                "reset": not ret,
+                "n_idle": 0
+            }
 
     def _handle_command_wait_empty(self, req):
         if self.pipeline is None:

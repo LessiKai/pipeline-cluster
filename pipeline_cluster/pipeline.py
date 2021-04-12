@@ -33,7 +33,7 @@ def _worker_routine(taskchain, log_addr, new_items_counter, idle_counter, sleep_
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     # TODO: ignore/handle more signals if needed
 
-    mpl.configure(log_addr)
+    mpl.set_default_address(log_addr)
     benchmark_file = os.path.join(benchmark_folder, str(os.getpid()))
     benchmark = [{
         "task": t.name,
